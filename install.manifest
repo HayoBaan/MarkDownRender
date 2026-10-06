@@ -1,0 +1,5 @@
+# What mdrender installs, and where. Read by install.sh.
+#
+# source          destination
+bin/              $TARGET/bin/
+lua-filter/*.lua  ${XDG_DATA_HOME:-~/.local/share}/pandoc/filters/

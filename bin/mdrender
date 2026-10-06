@@ -1,0 +1,618 @@
+#!/usr/bin/env bash
+
+# mdrender — render Markdown to HTML, DOCX, ODT or PDF, including diagrams
+#
+# Usage:
+#   mdrender --help|-h
+#   mdrender --version
+#   mdrender [option...] [file.md ...] [-- extra pandoc options]
+#
+# Options:
+#   --to|-t FORMAT        Output format: html (default), docx, odt or pdf.
+#   --pdf-engine ENGINE   PDF engine: auto (default), typst, latex, weasyprint
+#                         or libreoffice. The default can also be set with
+#                         the environment variable MDRENDER_PDF_ENGINE.
+#   --output|-o FILE      Output file, for a single input only. "-" means stdout.
+#   --link-ext|-l         Rewrite relative .md links to the output extension,
+#                         e.g. other.md#part becomes other.html#part. Not for
+#                         pdf: there, links to other files become plain text.
+#   --no-shift            Keep heading levels as they are.
+#   --lang CODE           Document language, e.g. nl or en-GB. Sets hyphenation
+#                         in PDF, the language for spell checking in docx/odt,
+#                         and the lang attribute in HTML.
+#   --nl, --de, --fr, --es, --gb
+#                         Short for --lang nl (Dutch), de (German), fr (French),
+#                         es (Spanish) or en-GB (British English).
+#   --margin LENGTH       HTML page margin on all sides (default: 2em).
+#   --max-width LENGTH    HTML content width limit (default: none, full width).
+#   --theme THEME         HTML theme: light (default), dark, or system to follow
+#                         the light or dark theme of the system. Printing is
+#                         always light.
+#   --dark                Short for --theme dark.
+#   --paper SIZE          docx/odt/pdf paper size: a3, a4 (default), a5, letter,
+#                         legal.
+#   --landscape           docx/odt/pdf landscape orientation.
+#   --page-margin LENGTH  docx/odt/pdf page margin on all sides (default: 2cm).
+#                         Units: mm, cm, in or pt.
+#   --reference-doc FILE  Style template for docx/odt, and for pdf with the
+#                         libreoffice engine (fonts, styles, page setup).
+#
+# Without files, or with "-", input is read from stdin and written to stdout.
+# Anything after "--" is passed to pandoc unchanged.
+#
+# Directives in the document, each an HTML comment on a line of its own:
+#   <!-- lang: nl -->     Document language, unless --lang or YAML sets one.
+#   <!-- newpage -->      Page break in docx, odt, pdf, and printed html.
+#
+# Examples:
+#   mdrender advice.md plan.md --link-ext
+#   mdrender -t odt advice.md
+#   mdrender -t docx --landscape --paper a3 overview.md
+#   mdrender -t pdf --pdf-engine weasyprint advice.md
+#   mdrender -t pdf --nl advies.md
+#   cat notes.md | mdrender > notes.html
+#
+# How it works, and how to install it: README.md in the MarkDownRender
+# repository, https://github.com/HayoBaan/MarkDownRender
+
+set -euo pipefail
+
+readonly PROGRAM="$(basename "$0")"
+readonly VERSION="0.001"
+
+# Prints the header comment of this script as its help
+help() {
+  sed -n '3,/^$/s/^# \{0,1\}//p' "$0"
+}
+
+# Prints the Usage part of the header comment
+usage() {
+  sed -n '/^# Usage:/,/^#$/s/^# \{0,1\}//p' "$0"
+}
+
+# Prints an error message and exits.
+die() {
+  echo "${PROGRAM}: $*" >&2
+  exit 1
+}
+
+# Prints the full path of an installed filter, or exits when it is not installed.
+find_filter() {
+  local name="$1"
+  local data_dir
+  data_dir="$(pandoc --version | sed -n 's/^User data directory: //p')"
+  local path="${data_dir}/filters/${name}"
+  [[ -f "${path}" ]] || die "filter ${name} not found in ${data_dir}/filters (run install.sh from the MarkDownRender repository)"
+  echo "${path}"
+}
+
+# Prints the number of level-1 headings outside fenced code blocks.
+# Counts ATX headings ("# Title") and setext headings ("Title" over "=====").
+count_h1() {
+  awk '
+    /^[[:space:]]*(```|~~~)/ { fence = !fence; previous = ""; next }
+    fence { next }
+    /^# / { count++ }
+    /^=+[[:space:]]*$/ && previous ~ /[^[:space:]]/ { count++ }
+    { previous = $0 }
+    END { print count + 0 }
+  ' "$1"
+}
+
+# Succeeds when the document starts with YAML metadata that sets a title.
+has_yaml_title() {
+  awk '
+    NR == 1 && $0 !~ /^---[[:space:]]*$/ { exit 1 }
+    NR > 1 && /^(---|\.\.\.)[[:space:]]*$/ { exit found ? 0 : 1 }
+    NR > 1 && /^title:/ { found = 1 }
+    END { exit found ? 0 : 1 }
+  ' "$1"
+}
+
+format="html"
+output=""
+link_ext="false"
+shift_headings="true"
+margin="2em"
+max_width="none"
+theme="light"
+reference_doc=""
+paper="a4"
+landscape="false"
+page_margin="2cm"
+page_explicit="false"
+lang=""
+pdf_engine="${MDRENDER_PDF_ENGINE:-auto}"
+inputs=()
+pandoc_extra=()
+
+# Process command-line options
+case ${1:-} in
+  --help|-h) help; exit 0 ;;
+esac
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version) echo "${PROGRAM} ${VERSION}"; exit 0 ;;
+    -t | --to) format="${2:?missing format}"; shift 2 ;;
+    --pdf-engine) pdf_engine="${2:?missing PDF engine}"; shift 2 ;;
+    -o | --output) output="${2:?missing output file}"; shift 2 ;;
+    -l | --link-ext) link_ext="true"; shift ;;
+    --no-shift) shift_headings="false"; shift ;;
+    --lang) lang="${2:?missing language}"; shift 2 ;;
+    --nl | --de | --fr | --es) lang="${1#--}"; shift ;;
+    --gb) lang="en-GB"; shift ;;
+    --margin) margin="${2:?missing margin}"; shift 2 ;;
+    --max-width) max_width="${2:?missing width}"; shift 2 ;;
+    --theme) theme="${2:?missing theme}"; shift 2 ;;
+    --dark) theme="dark"; shift ;;
+    --reference-doc) reference_doc="${2:?missing file}"; shift 2 ;;
+    --paper) paper="${2:?missing paper size}"; page_explicit="true"; shift 2 ;;
+    --landscape) landscape="true"; page_explicit="true"; shift ;;
+    --page-margin) page_margin="${2:?missing margin}"; page_explicit="true"; shift 2 ;;
+    --) shift; pandoc_extra=("$@"); break ;;
+    -) inputs+=("-"); shift ;;
+    -*) echo "${PROGRAM}: unknown option: $1" >&2; usage >&2; exit 1 ;;
+    *) inputs+=("$1"); shift ;;
+  esac
+done
+
+# Prints the program that runs a PDF engine, or fails when it is not installed.
+pdf_program() {
+  case "$1" in
+    typst) command -v typst ;;
+    latex) command -v xelatex || command -v lualatex || command -v tectonic || command -v pdflatex ;;
+    weasyprint) command -v weasyprint ;;
+    libreoffice) command -v soffice ;;
+    *) return 1 ;;
+  esac
+}
+
+# Prints the PDF engine to use: the one asked for, or with auto the first one installed.
+choose_pdf_engine() {
+  local engine
+  case "${pdf_engine}" in
+    auto)
+      for engine in typst latex weasyprint libreoffice; do
+        if pdf_program "${engine}" >/dev/null; then
+          echo "${engine}"
+          return
+        fi
+      done
+      die "no PDF engine found (install e.g. typst, see the README)"
+      ;;
+    typst | latex | weasyprint | libreoffice)
+      pdf_program "${pdf_engine}" >/dev/null || die "PDF engine ${pdf_engine} is not installed, or not on the PATH"
+      echo "${pdf_engine}"
+      ;;
+    *) die "unsupported PDF engine ${pdf_engine} (use auto, typst, latex, weasyprint or libreoffice)" ;;
+  esac
+}
+
+case "${format}" in
+  html) writer="html5" ;;
+  docx | odt) writer="${format}" ;;
+  pdf)
+    pdf_engine="$(choose_pdf_engine)"
+    case "${pdf_engine}" in
+      typst) writer="typst" ;;
+      latex) writer="latex" ;;
+      weasyprint) writer="html5" ;;
+      libreoffice) writer="odt" ;;
+    esac
+    ;;
+  *) die "unsupported format ${format} (use html, docx, odt or pdf)" ;;
+esac
+
+if [[ ${#inputs[@]} -eq 0 ]]; then
+  inputs=("-")
+fi
+if [[ -n "${output}" && ${#inputs[@]} -gt 1 ]]; then
+  die "--output can only be used with a single input"
+fi
+
+case "${paper}" in
+  a3 | a4 | a5 | letter | legal) ;;
+  *) die "unsupported paper size ${paper} (use a3, a4, a5, letter or legal)" ;;
+esac
+
+case "${theme}" in
+  light | dark | system) ;;
+  *) die "unsupported theme ${theme} (use light, dark or system)" ;;
+esac
+
+diagram_filter="$(find_filter diagram.lua)"
+directives_filter="$(find_filter directives.lua)"
+links_filter="$(find_filter md-links.lua)"
+
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "${tmp_dir}"' EXIT
+
+# Writes a copy of a docx or odt reference document with the requested page setup.
+# Arguments: format, base document, output document.
+make_reference_doc() {
+  python3 - "$1" "$2" "$3" "${paper}" "${landscape}" "${page_margin}" <<'PYTHON'
+import re
+import sys
+import zipfile
+
+fmt, base, out, paper, landscape, margin = sys.argv[1:7]
+
+# Paper sizes in millimeters, portrait.
+SIZES = {"a3": (297, 420), "a4": (210, 297), "a5": (148, 210),
+         "letter": (215.9, 279.4), "legal": (215.9, 355.6)}
+UNIT_MM = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72}
+
+match = re.fullmatch(r"\s*([0-9]*\.?[0-9]+)\s*(mm|cm|in|pt)\s*", margin)
+if not match:
+    sys.exit(f"invalid page margin {margin!r} (use e.g. 2cm, 20mm, 1in or 72pt)")
+margin_mm = float(match.group(1)) * UNIT_MM[match.group(2)]
+width_mm, height_mm = SIZES[paper]
+if landscape == "true":
+    width_mm, height_mm = height_mm, width_mm
+orientation = "landscape" if landscape == "true" else "portrait"
+
+
+def docx_page(xml):
+    """Replaces the final section properties with the requested page setup."""
+    twips = lambda mm: str(round(mm / 25.4 * 1440))
+    page = (f'<w:pgSz w:w="{twips(width_mm)}" w:h="{twips(height_mm)}" w:orient="{orientation}"/>'
+            f'<w:pgMar w:top="{twips(margin_mm)}" w:right="{twips(margin_mm)}" '
+            f'w:bottom="{twips(margin_mm)}" w:left="{twips(margin_mm)}" '
+            f'w:header="709" w:footer="709" w:gutter="0"/>')
+    sections = list(re.finditer(r"<w:sectPr\b[^>]*?(?:/>|>.*?</w:sectPr>)", xml, re.S))
+    if not sections:
+        return xml.replace("</w:body>", f"<w:sectPr>{page}</w:sectPr></w:body>")
+    last = sections[-1]
+    section = re.sub(r"<w:(pgSz|pgMar)\b[^>]*/>", "", last.group(0))
+    if section.endswith("/>"):
+        section = section[:-2] + ">" + page + "</w:sectPr>"
+    else:
+        section = re.sub(r"(<w:sectPr\b[^>]*>)", lambda m: m.group(1) + page, section, count=1)
+    return xml[:last.start()] + section + xml[last.end():]
+
+
+def odt_page(xml):
+    """Sets page size, orientation and margins on every page layout."""
+    values = {"fo:page-width": f"{width_mm}mm", "fo:page-height": f"{height_mm}mm",
+              "style:print-orientation": orientation,
+              "fo:margin-top": f"{margin_mm}mm", "fo:margin-bottom": f"{margin_mm}mm",
+              "fo:margin-left": f"{margin_mm}mm", "fo:margin-right": f"{margin_mm}mm"}
+
+    def update(element):
+        text = element.group(0)
+        for name, value in values.items():
+            pattern = rf'{name}="[^"]*"'
+            if re.search(pattern, text):
+                text = re.sub(pattern, f'{name}="{value}"', text)
+            else:
+                text = text.replace("<style:page-layout-properties",
+                                    f'<style:page-layout-properties {name}="{value}"', 1)
+        return text
+
+    return re.sub(r"<style:page-layout-properties\b[^>]*>", update, xml)
+
+
+# The paragraph style that directives.lua uses for a page break in ODT.
+PAGEBREAK_STYLE = ('<style:style style:name="Pagebreak" style:family="paragraph" '
+                   'style:parent-style-name="Standard">'
+                   '<style:paragraph-properties fo:break-before="page"/></style:style>')
+
+
+def odt_styles(xml):
+    """Sets the page setup, and adds the Pagebreak style when it is missing."""
+    xml = odt_page(xml)
+    if 'style:name="Pagebreak"' not in xml:
+        xml = xml.replace("</office:styles>", PAGEBREAK_STYLE + "</office:styles>", 1)
+    return xml
+
+
+member, transform = ("word/document.xml", docx_page) if fmt == "docx" else ("styles.xml", odt_styles)
+with zipfile.ZipFile(base) as source, zipfile.ZipFile(out, "w") as target:
+    for info in source.infolist():
+        data = source.read(info.filename)
+        if info.filename == member:
+            data = transform(data.decode("utf-8")).encode("utf-8")
+        # ODT requires an uncompressed mimetype entry, which keeping the original compression preserves.
+        target.writestr(info, data, compress_type=info.compress_type)
+PYTHON
+}
+
+# Prints pandoc options that limit diagrams to the text area of the current
+# paper, orientation and margin. The height leaves 20mm for a caption.
+diagram_size_options() {
+  python3 - "${paper}" "${landscape}" "${page_margin}" <<'PYTHON'
+import re
+import sys
+
+CAPTION_MM = 20
+
+paper, landscape, margin = sys.argv[1:4]
+sizes = {"a3": (297, 420), "a4": (210, 297), "a5": (148, 210),
+         "letter": (215.9, 279.4), "legal": (215.9, 355.6)}
+unit_mm = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72}
+match = re.fullmatch(r"\s*([0-9]*\.?[0-9]+)\s*(mm|cm|in|pt)\s*", margin)
+if not match:
+    sys.exit(f"invalid page margin {margin!r} (use e.g. 2cm, 20mm, 1in or 72pt)")
+margin_mm = float(match.group(1)) * unit_mm[match.group(2)]
+width, height = sizes[paper]
+if landscape == "true":
+    width, height = height, width
+print("--metadata")
+print(f"diagram-max-width={width - 2 * margin_mm:.1f}mm")
+print("--metadata")
+print(f"diagram-max-height={height - 2 * margin_mm - CAPTION_MM:.1f}mm")
+PYTHON
+}
+
+# Prints the reference document to use for docx or odt, creating it when needed.
+# Argument: the document format, docx or odt.
+reference_doc_for() {
+  local doc_format="$1"
+  local generated="${tmp_dir}/reference.${doc_format}"
+  if [[ -f "${generated}" ]]; then
+    echo "${generated}"
+    return
+  fi
+  local base="${reference_doc}"
+  if [[ -n "${base}" && "${page_explicit}" == "false" ]]; then
+    echo "${base}"
+    return
+  fi
+  if [[ -z "${base}" ]]; then
+    local data_dir
+    data_dir="$(pandoc --version | sed -n 's/^User data directory: //p')"
+    base="${data_dir}/reference.${doc_format}"
+    if [[ ! -f "${base}" ]]; then
+      base="${tmp_dir}/default-reference.${doc_format}"
+      pandoc --print-default-data-file "reference.${doc_format}" > "${base}"
+    fi
+  fi
+  [[ -f "${base}" ]] || die "reference document ${base} not found"
+  make_reference_doc "${doc_format}" "${base}" "${generated}" || die "could not create the page setup"
+  echo "${generated}"
+}
+
+# Writes the CSS for the HTML theme, and prints its path.
+#   - Pandoc's template picks its colors with light-dark(), so the color-scheme
+#     property selects the theme. Without it, the template follows the system.
+#     The template itself keeps printing light.
+#   - Diagrams are drawn for a light background. They get a light panel, which
+#     is only visible on a dark page.
+theme_css() {
+  local file="${tmp_dir}/theme.html"
+  local scheme=""
+  case "${theme}" in
+    light | dark) scheme="@media screen { html { color-scheme: ${theme}; } }" ;;
+  esac
+  cat > "${file}" <<CSS
+<style>
+${scheme}
+img.diagram {
+  box-sizing: border-box;
+  padding: 0.5em;
+  border-radius: 0.4em;
+  background-color: light-dark(transparent, #fdfdfd);
+}
+</style>
+CSS
+  echo "${file}"
+}
+
+# Writes the page setup for WeasyPrint as a CSS @page rule, and prints its path.
+page_css() {
+  local file="${tmp_dir}/page.html"
+  local size="${paper}"
+  case "${paper}" in
+    a3 | a4 | a5) size="$(echo "${paper}" | tr a A)" ;;
+  esac
+  [[ "${landscape}" == "true" ]] && size+=" landscape"
+  echo "<style>@page { size: ${size}; margin: ${page_margin}; }</style>" > "${file}"
+  echo "${file}"
+}
+
+# Writes the page setup for pandoc's Typst template as metadata, and prints its path.
+# The template takes the margin as a map, which only a metadata file can set.
+typst_page_metadata() {
+  local file="${tmp_dir}/typst-page.yaml"
+  local size="${paper}"
+  case "${paper}" in
+    letter | legal) size="us-${paper}" ;;
+  esac
+  printf 'papersize: %s\nmargin:\n  x: %s\n  y: %s\n' "${size}" "${page_margin}" "${page_margin}" > "${file}"
+  echo "${file}"
+}
+
+# Writes Typst rules that improve pandoc's tables, and prints their path:
+#   - Pandoc centers each table, and its cells inherit that. Cells start left.
+#   - Pandoc's template justifies all text. In narrow cells that leaves gaps.
+#   - The header row is bold, as in the other output formats.
+#   - Pandoc wraps a table in a figure, which Typst keeps on one page. A
+#     breakable figure lets a long table continue on the next page, and its
+#     header row is repeated there.
+typst_table_rules() {
+  local file="${tmp_dir}/tables.typ"
+  cat > "${file}" <<'TYPST'
+#show table: set align(start)
+#show table: set par(justify: false)
+#show table.cell.where(y: 0): set text(weight: "bold")
+#show figure.where(kind: table): set block(breakable: true)
+TYPST
+  echo "${file}"
+}
+
+# Renders one input file to the given output ("-" for stdout).
+render() {
+  local input="$1" target="$2" name="$3" resource_dir="$4"
+
+  local args=(
+    "${input}"
+    --from markdown+gfm_auto_identifiers
+    --to "${writer}"
+    --standalone
+    --resource-path "${resource_dir}"
+    --lua-filter "${directives_filter}"
+    --lua-filter "${diagram_filter}"
+  )
+
+  # Limits for diagram images, which only formats with pages need.
+  local diagram_size=() sizes line
+  if [[ "${format}" != "html" ]]; then
+    sizes="$(diagram_size_options)" || die "${name}: invalid page setup"
+    while IFS= read -r line; do
+      diagram_size+=("${line}")
+    done <<< "${sizes}"
+  fi
+
+  local h1_count
+  h1_count="$(count_h1 "${input}")"
+  if [[ "${shift_headings}" == "true" && "${h1_count}" -eq 1 ]]; then
+    args+=(--shift-heading-level-by=-1)
+  elif [[ "${shift_headings}" == "true" && "${h1_count}" -gt 1 ]]; then
+    echo "${PROGRAM}: ${name}: ${h1_count} level-1 headings found, not shifting heading levels" >&2
+  fi
+
+  if [[ "${format}" == "pdf" ]]; then
+    # Most PDF viewers refuse to open another file from a link, so links to
+    # other local files become plain text. Web links and internal links stay.
+    args+=(--lua-filter "${links_filter}" --metadata "md-link-unlink=true")
+  elif [[ "${link_ext}" == "true" ]]; then
+    args+=(--lua-filter "${links_filter}" --metadata "md-link-ext=${format}")
+  fi
+
+  # Overrides a lang field in the document's YAML metadata, and a lang directive.
+  if [[ -n "${lang}" ]]; then
+    args+=(--metadata "lang=${lang}")
+  fi
+
+  case "${writer}" in
+    html5)
+      if [[ "${format}" == "html" ]]; then
+        args+=(
+          --embed-resources
+          --variable "maxwidth=${max_width}"
+          --variable "margin-left=${margin}"
+          --variable "margin-right=${margin}"
+          --variable "margin-top=${margin}"
+          --variable "margin-bottom=${margin}"
+          --include-in-header "$(theme_css)"
+        )
+      else
+        # WeasyPrint: the page setup comes from CSS, so the body needs no
+        # width limit or padding of its own.
+        args+=(
+          --variable "maxwidth=none"
+          --variable "margin-left=0"
+          --variable "margin-right=0"
+          --variable "margin-top=0"
+          --variable "margin-bottom=0"
+          --include-in-header "$(page_css)"
+          --metadata "diagram-format=png"
+          "${diagram_size[@]}"
+          # Hides warnings about CSS in pandoc's template that only browsers support.
+          --pdf-engine-opt=--quiet
+        )
+      fi
+      # Without a title, pandoc warns and the browser tab shows nothing useful.
+      if [[ ! ( "${shift_headings}" == "true" && "${h1_count}" -eq 1 ) ]] && ! has_yaml_title "${input}"; then
+        args+=(--metadata "pagetitle=${name}")
+      fi
+      ;;
+    docx | odt)
+      args+=(--reference-doc "$(reference_doc_for "${writer}")")
+      # Keeps diagrams within the text area. With an unmodified own reference
+      # document the page setup is unknown, so diagrams keep their natural size.
+      if [[ -z "${reference_doc}" || "${page_explicit}" == "true" ]]; then
+        args+=("${diagram_size[@]}")
+      fi
+      ;;
+    typst)
+      # Typst reads a path that starts with / relative to its root folder, which
+      # is the current folder by default. Pandoc refers to images by absolute path.
+      args+=(
+        --metadata-file "$(typst_page_metadata)"
+        "${diagram_size[@]}"
+        --pdf-engine-opt=--root=/
+        # Typst reads the color as content, in which # starts code.
+        --variable 'linkcolor=\#1a5fb4'
+        --include-in-header "$(typst_table_rules)"
+        # Pandoc gives a wide pipe table relative column widths, taken from the
+        # lengths of its dash lines. A wide line limit leaves the widths to Typst,
+        # which fits them to the content.
+        --columns=10000
+      )
+      # Pandoc's Typst template has no variable for the orientation.
+      if [[ "${landscape}" == "true" ]]; then
+        echo '#set page(flipped: true)' > "${tmp_dir}/landscape.typ"
+        args+=(--include-in-header "${tmp_dir}/landscape.typ")
+      fi
+      ;;
+    latex)
+      args+=(
+        --variable "papersize=${paper}"
+        --variable "geometry=margin=${page_margin}"
+        --variable "colorlinks=true"
+        --variable "linkcolor=Blue"
+        "${diagram_size[@]}"
+      )
+      if [[ "${landscape}" == "true" ]]; then
+        args+=(--variable "geometry=landscape")
+      fi
+      ;;
+  esac
+
+  if [[ "${target}" == "-" && "${format}" != "html" && -t 1 ]]; then
+    die "${name}: refusing to write ${format} to a terminal (use --output or redirect stdout)"
+  fi
+
+  if [[ "${format}" != "pdf" ]]; then
+    pandoc "${args[@]}" ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${target}"
+    return
+  fi
+
+  # Pandoc only creates a PDF for an output file named *.pdf, and LibreOffice
+  # always writes to a folder. Both write to a temporary file first.
+  local pdf="${tmp_dir}/output/${name}.pdf"
+  mkdir -p "${tmp_dir}/output"
+  if [[ "${pdf_engine}" == "libreoffice" ]]; then
+    local odt="${tmp_dir}/output/${name}.odt"
+    pandoc "${args[@]}" ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${odt}"
+    # A private user profile lets the conversion run while LibreOffice is open.
+    # Its messages, such as font configuration warnings, are only shown on failure.
+    if ! "$(pdf_program libreoffice)" -env:UserInstallation="file://${tmp_dir}/libreoffice" \
+      --headless --convert-to pdf --outdir "${tmp_dir}/output" "${odt}" \
+      >"${tmp_dir}/libreoffice.log" 2>&1 || [[ ! -f "${pdf}" ]]; then
+      cat "${tmp_dir}/libreoffice.log" >&2
+      die "${name}: LibreOffice could not convert the document to PDF"
+    fi
+  else
+    # Tectonic warns about every image that pandoc refers to by absolute path.
+    # That is harmless here, so those warnings are left out. Other messages remain.
+    pandoc "${args[@]}" --pdf-engine "$(pdf_program "${pdf_engine}")" \
+      ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${pdf}" \
+      2> >(grep -v '^warning: accessing absolute path .*build may not be reproducible' >&2)
+  fi
+  if [[ "${target}" == "-" ]]; then
+    cat "${pdf}"
+  else
+    mv "${pdf}" "${target}"
+  fi
+}
+
+for input in "${inputs[@]}"; do
+  if [[ "${input}" == "-" ]]; then
+    stdin_copy="${tmp_dir}/stdin.md"
+    cat > "${stdin_copy}"
+    render "${stdin_copy}" "${output:--}" "stdin" "${PWD}"
+  else
+    [[ -f "${input}" ]] || die "${input}: no such file"
+    if [[ -n "${output}" ]]; then
+      target="${output}"
+    else
+      target="${input%.*}.${format}"
+    fi
+    render "${input}" "${target}" "$(basename "${input%.*}")" "$(dirname "${input}")"
+    if [[ "${target}" != "-" ]]; then
+      echo "${PROGRAM}: wrote ${target}" >&2
+    fi
+  fi
+done

@@ -1,0 +1,8 @@
+# Rendered output, e.g. from rendering README.md with mdrender itself.
+*.html
+*.docx
+*.odt
+*.pdf
+
+# macOS
+.DS_Store
