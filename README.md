@@ -2,7 +2,7 @@
 
 Render Markdown to HTML, DOCX, ODT or PDF in one command, diagrams included.
 
-`mdrender` is a small wrapper around [pandoc](https://pandoc.org). It adds three Lua filters and
+`mdrender` is a small wrapper around [pandoc](https://pandoc.org). It adds five Lua filters and
 sensible defaults:
 
 - Diagrams become images: Mermaid and Graphviz code blocks, and draw.io files. HTML gets SVG,
@@ -10,6 +10,9 @@ sensible defaults:
 - Links to other Markdown files can be rewritten to the output format, e.g. `other.md` becomes
   `other.html`.
 - Directives in the document, as invisible HTML comments: the document language, and page breaks.
+- Long inline code, such as a path or `Class.method`, can break across lines in PDF. It stays
+  within its table column and on the page.
+- With LaTeX, a table column that is too narrow for its longest word gets wider.
 - HTML fills the window, with a small margin. It is light by default, or dark, or follows the
   system.
 - DOCX, ODT and PDF use A4 portrait with 2 cm margins, instead of pandoc's US Letter.
@@ -26,9 +29,11 @@ MarkDownRender/
 ├── bin/
 │   └── mdrender          the command-line script
 ├── lua-filter/
+│   ├── code-breaks.lua   lets long inline code break across lines
 │   ├── diagram.lua       turns Mermaid, Graphviz and draw.io diagrams into images
 │   ├── directives.lua    handles directives: document language and page breaks
-│   └── md-links.lua      rewrites links to .md files
+│   ├── md-links.lua      rewrites links to .md files
+│   └── table-widths.lua  widens LaTeX table columns to fit their longest word
 ├── install.manifest      what to install, and where
 ├── install.sh            installs the files listed in install.manifest
 ├── LICENSE               the MIT License
@@ -211,6 +216,10 @@ Some notes per engine:
   - The header row is bold.
   - Column widths fit the content.
   - A long table continues on the next page, with its header row repeated.
+
+  It also shows the checkboxes of task lists (`- [ ]` and `- [x]`) as the math symbols `□` and `⊠`,
+  as LaTeX does. Typst's default font has no checkbox characters. In a list of only task items,
+  the checkbox replaces the bullet, as in the HTML.
 - **LaTeX** uses `xelatex`, `lualatex`, `tectonic` or `pdflatex`, whichever is found first.
   Tectonic is the smallest LaTeX to install. It downloads the packages it needs on first use. A
   full TeX Live, or MacTeX on macOS, also works, but is several gigabytes. BasicTeX (`brew install
@@ -222,7 +231,8 @@ Some notes per engine:
   Live has them. With BasicTeX, install them with `tlmgr`, e.g. for Dutch:
   `sudo tlmgr install babel-dutch hyphen-dutch`.
 - **WeasyPrint** turns the HTML into PDF. Diagrams become PNG here, because WeasyPrint cannot
-  show the labels that Mermaid and draw.io put in their SVG.
+  show the labels that Mermaid and draw.io put in their SVG. `mdrender` also keeps the
+  checkboxes of task lists on the line of their item, as in the HTML.
 - **LibreOffice** converts the ODT output, so `--reference-doc` applies. `mdrender` runs it as
   `soffice`, which must be on your `PATH`. Linux packages install it there. On macOS, the app
   keeps it inside its bundle, so link it into a folder on your `PATH`, e.g.:
@@ -307,7 +317,7 @@ Example:
 
 # Managementsamenvatting
 
-Two pages of summary.
+Twee pagina's samenvatting.
 
 <!-- newpage -->
 
@@ -421,6 +431,46 @@ other local files become plain text, also without `--link-ext`. Web links and li
 document stay links. With Typst and LaTeX, `mdrender` also colors links blue, because both
 engines show them as plain text by default.
 
+### Long inline code
+
+Typst, LaTeX and WeasyPrint don't break inline code by themselves. A long name such as
+`OrderService.calculateShippingCosts` then runs into the next table column, or off the page.
+`code-breaks.lua` adds a break opportunity after each `.`, `/`, `_`, `,`, `|`, `:` and `-` in
+inline code:
+
+| Engine      | Where      | How                                                   |
+| ----------- | ---------- | ----------------------------------------------------- |
+| Typst       | In tables  | A zero-width space, which copied text leaves out      |
+| LaTeX       | Everywhere | `\allowbreak`, except in headings                     |
+| WeasyPrint  | In tables  | `<wbr>`                                               |
+| LibreOffice | Not needed | LibreOffice breaks a long word by itself where needed |
+
+Outside tables, Typst moves long code to a new line by itself. LaTeX doesn't, so there the filter
+works everywhere. With LaTeX, normal text also gets a break opportunity after a `/`, so e.g.
+`client/server` can break. Typst already breaks there, and WeasyPrint widens the column instead.
+
+With LaTeX, `mdrender` also uses `\sloppy`. LaTeX then accepts a loosely spaced line rather than
+one that runs past the margin. HTML output gets the same `<wbr>` in tables as WeasyPrint.
+
+### Table column widths
+
+For a pipe table with a line wider than 72 characters, pandoc sets each column's width from the
+length of its dash line. LaTeX keeps those widths. A narrow column can then be too narrow for a
+word in it, which runs into the next column. Typst, WeasyPrint and LibreOffice size the columns
+themselves.
+
+So with LaTeX, `table-widths.lua` estimates the width of the longest word in each column. A word
+can break at a space, after a hyphen, and where `code-breaks.lua` allows it. A hyphen between
+digits, as in a date, counts as part of the word. A column that is too narrow gets wider. The
+extra width comes from the columns with room to spare.
+
+When the longest words don't fit the line together, the table gets a smaller font: first
+`\small`, then `\footnotesize`. When even that is too wide, `mdrender` prints a warning that names
+the table by its header row. The columns may then overlap a little.
+
+The estimate counts characters, because a filter can't measure text. It assumes Latin Modern,
+LaTeX's default font. With another font set in the document, the widths can be a little off.
+
 ## Using the filters directly
 
 Pandoc finds the installed filters by name:
@@ -429,21 +479,24 @@ Pandoc finds the installed filters by name:
 pandoc -s --embed-resources -L diagram.lua input.md -o output.html
 pandoc -L md-links.lua -M md-link-ext=html input.md -o output.html
 pandoc -L directives.lua input.md -o output.pdf
+pandoc -L code-breaks.lua input.md -o output.pdf
+pandoc -L code-breaks.lua -L table-widths.lua -M table-text-width=170mm input.md -o output.pdf
 ```
 
 Settings:
 
-| Setting                         | Filter         | Purpose                                        |
-| ------------------------------- | -------------- | ---------------------------------------------- |
-| metadata `md-link-ext`          | `md-links.lua` | New link extension, e.g. `html`                |
-| metadata `md-link-unlink`       | `md-links.lua` | `true`: links to local files become plain text |
-| metadata `diagram-max-width`    | `diagram.lua`  | Maximum PNG width, e.g. `170mm`                |
-| metadata `diagram-max-height`   | `diagram.lua`  | Maximum PNG height, e.g. `237mm`               |
-| metadata `diagram-format`       | `diagram.lua`  | Image type: `svg` or `png`                     |
-| environment `DIAGRAM_CACHE_DIR` | `diagram.lua`  | Cache location                                 |
-| environment `DIAGRAM_MMDC`      | `diagram.lua`  | `mmdc` executable                              |
-| environment `DIAGRAM_DOT`       | `diagram.lua`  | `dot` executable                               |
-| environment `DIAGRAM_DRAWIO`    | `diagram.lua`  | draw.io executable                             |
+| Setting                         | Filter             | Purpose                                        |
+| ------------------------------- | ------------------ | ---------------------------------------------- |
+| metadata `md-link-ext`          | `md-links.lua`     | New link extension, e.g. `html`                |
+| metadata `md-link-unlink`       | `md-links.lua`     | `true`: links to local files become plain text |
+| metadata `diagram-max-width`    | `diagram.lua`      | Maximum PNG width, e.g. `170mm`                |
+| metadata `diagram-max-height`   | `diagram.lua`      | Maximum PNG height, e.g. `237mm`               |
+| metadata `diagram-format`       | `diagram.lua`      | Image type: `svg` or `png`                     |
+| metadata `table-text-width`     | `table-widths.lua` | Text width for LaTeX tables, e.g. `170mm`      |
+| environment `DIAGRAM_CACHE_DIR` | `diagram.lua`      | Cache location                                 |
+| environment `DIAGRAM_MMDC`      | `diagram.lua`      | `mmdc` executable                              |
+| environment `DIAGRAM_DOT`       | `diagram.lua`      | `dot` executable                               |
+| environment `DIAGRAM_DRAWIO`    | `diagram.lua`      | draw.io executable                             |
 
 ## Emacs
 
@@ -472,6 +525,11 @@ Use `"mdrender --link-ext"` to also rewrite links to other Markdown files.
   Set it with `--lang` or a shortcut such as `--nl`, or in the document, see [Language](#language).
 - **Own ODT reference document without page options.** It needs a paragraph style `Pagebreak` for
   page breaks, see [Directives](#directives).
+- **LaTeX doesn't wrap code blocks.** A line in a fenced code block that is wider than the page
+  runs off it. `code-breaks.lua` only handles inline code.
+- **A very wide table can still overlap with LaTeX.** When a table's longest words don't fit the
+  line even in `\footnotesize`, its columns overlap, see [Table column widths](#table-column-widths).
+  Shorten or split the table, or use landscape.
 - **`mmdc` errors are verbose.** When a diagram is invalid, `mmdc` prints a stack trace to stderr.
 
 ## Alternatives
