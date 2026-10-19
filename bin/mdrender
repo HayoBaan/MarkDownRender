@@ -58,7 +58,7 @@
 set -euo pipefail
 
 readonly PROGRAM="$(basename "$0")"
-readonly VERSION="0.001"
+readonly VERSION="0.002"
 
 # Prints the header comment of this script as its help
 help() {
@@ -223,6 +223,8 @@ esac
 diagram_filter="$(find_filter diagram.lua)"
 directives_filter="$(find_filter directives.lua)"
 links_filter="$(find_filter md-links.lua)"
+code_breaks_filter="$(find_filter code-breaks.lua)"
+table_widths_filter="$(find_filter table-widths.lua)"
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
@@ -398,7 +400,12 @@ CSS
   echo "${file}"
 }
 
-# Writes the page setup for WeasyPrint as a CSS @page rule, and prints its path.
+# Writes the CSS for WeasyPrint, and prints its path:
+#   - The page setup, as an @page rule.
+#   - Task list checkboxes on the line of their item. WeasyPrint's own style
+#     sheet makes a checkbox a block with padding, so it sits on a line of its
+#     own, larger than pandoc's style intends. In a bulleted task list, pandoc's
+#     own rule is more specific and places the checkbox where the bullet is.
 page_css() {
   local file="${tmp_dir}/page.html"
   local size="${paper}"
@@ -406,7 +413,20 @@ page_css() {
     a3 | a4 | a5) size="$(echo "${paper}" | tr a A)" ;;
   esac
   [[ "${landscape}" == "true" ]] && size+=" landscape"
-  echo "<style>@page { size: ${size}; margin: ${page_margin}; }</style>" > "${file}"
+  cat > "${file}" <<CSS
+<style>
+@page { size: ${size}; margin: ${page_margin}; }
+li input[type="checkbox"] {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 0.8em;
+  height: 0.8em;
+  padding: 0.15em;
+  margin: 0 0.4em 0 0;
+  vertical-align: -0.25em;
+}
+</style>
+CSS
   echo "${file}"
 }
 
@@ -440,6 +460,94 @@ TYPST
   echo "${file}"
 }
 
+# Writes Typst rules for task list checkboxes, and prints their path.
+# Pandoc writes a task list item as a bullet item that starts with ☐ or ☒.
+#   - Typst's default font has neither glyph, so the fallback font picks them,
+#     and on macOS ☐ becomes a box with a question mark. The rules show the
+#     math symbols □ and ⊠ instead, as pandoc does for LaTeX. Typst's math font
+#     always has them.
+#   - In a list of only task items, the checkbox replaces the bullet, as in
+#     the HTML. Typst gives all items of a list the same marker, so such a
+#     list becomes an enum whose numbering returns each item's checkbox.
+typst_task_list_rules() {
+  local file="${tmp_dir}/task-lists.typ"
+  cat > "${file}" <<'TYPST'
+#let task-marks = ("☐": $square.stroked$, "☒": $times.square$)
+
+// Splits a task list item into its checkbox and the rest of its body.
+// Returns none for an item that does not start with a checkbox.
+#let task-split(item) = {
+  let body = item.body
+  let children = if body.has("children") { body.children } else { (body,) }
+  let first = children.at(0, default: none)
+  if first == none or not first.has("text") { return none }
+  let chars = first.text.codepoints()
+  if chars.len() == 0 or chars.first() not in task-marks { return none }
+  let rest = chars.slice(1).join(default: "").trim(at: start)
+  let tail = children.slice(1)
+  if rest == "" and tail.len() > 0 and tail.first() == [ ] { tail = tail.slice(1) }
+  (task-marks.at(chars.first()), (if rest == "" { none } else { text(rest) }, ..tail).join())
+}
+
+// Returns the list marker one nesting level deeper than the given one.
+#let deeper-marker(marker) = {
+  if type(marker) == array { marker.slice(1) + marker.slice(0, 1) }
+  else if type(marker) == function { depth => marker(depth + 1) }
+  else { marker }
+}
+
+// Typst counts list depth only through lists, so the lists nested in the
+// enum get the next level's marker explicitly.
+#show list: it => {
+  let tasks = it.children.map(task-split)
+  if tasks.any(t => t == none) { return it }
+  context {
+    set list(marker: deeper-marker(list.marker))
+    enum(
+      tight: it.tight,
+      spacing: it.spacing,
+      numbering: n => tasks.at(n - 1).first(),
+      ..tasks.map(t => enum.item(t.last())),
+    )
+  }
+}
+
+#show "☐": $square.stroked$
+#show "☒": $times.square$
+TYPST
+  echo "${file}"
+}
+
+# Writes LaTeX line breaking settings, and prints their path.
+# LaTeX prefers a line that runs past the margin over a loose line. A long
+# inline code name, which it cannot hyphenate, then runs off the page.
+# \sloppy accepts the loose line instead.
+latex_line_rules() {
+  local file="${tmp_dir}/lines.tex"
+  echo '\sloppy' > "${file}"
+  echo "${file}"
+}
+
+# Writes the LaTeX code font as metadata, and prints its path, or fails when the
+# LaTeX in use has no DejaVu Sans Mono.
+# LaTeX's default code font, Latin Modern Mono, has no box-drawing characters
+# such as ├── and │, and LaTeX has no font fallback, so they are left out.
+# DejaVu Sans Mono has them. Tectonic downloads it, and a full TeX Live
+# includes it, but BasicTeX does not. pdflatex cannot use it at all.
+# A metadata file lets a monofont in the document's own metadata win.
+latex_font_metadata() {
+  local program
+  program="$(basename "$(pdf_program latex)")"
+  case "${program}" in
+    tectonic) ;;
+    pdflatex) return 1 ;;
+    *) kpsewhich DejaVuSansMono.ttf >/dev/null 2>&1 || return 1 ;;
+  esac
+  local file="${tmp_dir}/latex-fonts.yaml"
+  printf 'monofont: DejaVuSansMono.ttf\nmonofontoptions: Scale=MatchLowercase\n' > "${file}"
+  echo "${file}"
+}
+
 # Renders one input file to the given output ("-" for stdout).
 render() {
   local input="$1" target="$2" name="$3" resource_dir="$4"
@@ -452,6 +560,7 @@ render() {
     --resource-path "${resource_dir}"
     --lua-filter "${directives_filter}"
     --lua-filter "${diagram_filter}"
+    --lua-filter "${code_breaks_filter}"
   )
 
   # Limits for diagram images, which only formats with pages need.
@@ -535,6 +644,7 @@ render() {
         # Typst reads the color as content, in which # starts code.
         --variable 'linkcolor=\#1a5fb4'
         --include-in-header "$(typst_table_rules)"
+        --include-in-header "$(typst_task_list_rules)"
         # Pandoc gives a wide pipe table relative column widths, taken from the
         # lengths of its dash lines. A wide line limit leaves the widths to Typst,
         # which fits them to the content.
@@ -552,11 +662,27 @@ render() {
         --variable "geometry=margin=${page_margin}"
         --variable "colorlinks=true"
         --variable "linkcolor=Blue"
+        --include-in-header "$(latex_line_rules)"
         "${diagram_size[@]}"
       )
       if [[ "${landscape}" == "true" ]]; then
         args+=(--variable "geometry=landscape")
       fi
+      local font_metadata
+      if font_metadata="$(latex_font_metadata)"; then
+        args+=(--metadata-file "${font_metadata}")
+      fi
+      # Widens table columns that are too narrow for their longest word. It
+      # runs after the code breaks filter, whose break opportunities it counts.
+      local option
+      for option in "${diagram_size[@]}"; do
+        if [[ "${option}" == diagram-max-width=* ]]; then
+          args+=(
+            --lua-filter "${table_widths_filter}"
+            --metadata "table-text-width=${option#diagram-max-width=}"
+          )
+        fi
+      done
       ;;
   esac
 
