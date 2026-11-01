@@ -88,10 +88,13 @@ mdrender --help|-h
 mdrender --version
 mdrender [option...] [file.md ...] [-- extra pandoc options]
 
-  --to|-t FORMAT        Output format: html (default), docx, odt or pdf.
+  --format|-f FORMAT    Output format: html (default), docx, odt or pdf.
+  --pdf|-p              Short for --format pdf.
   --pdf-engine ENGINE   PDF engine: auto (default), typst, latex, weasyprint or
                         libreoffice. Also settable with MDRENDER_PDF_ENGINE.
   --output|-o FILE      Output file, for a single input only. "-" means stdout.
+  --temp|-t             Write the output to a new temporary folder.
+  --open|-O             Open each output file. For stdin input, implies --temp.
   --link-ext|-l         Rewrite relative .md links to the output extension (not for pdf).
   --no-shift            Keep heading levels as they are.
   --lang CODE           Document language, e.g. nl or en-GB.
@@ -112,6 +115,11 @@ Input and output:
 - A file `foo.md` is written next to it as `foo.html`, `foo.docx`, `foo.odt` or `foo.pdf`.
 - Without a file, or with `-`, the input is read from stdin and written to stdout.
 - `--output` sets another output location, for a single input.
+- `--temp` writes the output to a new folder in `$TMPDIR` (or `/tmp`), with the same file name.
+  Use it to view a document without leaving files next to it. The folder is kept, so the files can
+  still be opened after `mdrender` exits.
+- `--open` opens each output file in its default application: `open` on macOS, `xdg-open`
+  elsewhere. Input from stdin then goes to a temporary file, as with `--temp`.
 - Anything after `--` is passed to pandoc unchanged.
 
 Examples:
@@ -121,21 +129,25 @@ Examples:
 mdrender --link-ext advice.md plan.md
 
 # ODT on A4, and DOCX on A3 landscape.
-mdrender -t odt advice.md
-mdrender -t docx --paper a3 --landscape overview.md
+mdrender -f odt advice.md
+mdrender -f docx --paper a3 --landscape overview.md
 
 # PDF with the best engine available, and with WeasyPrint.
-mdrender -t pdf advice.md
-mdrender -t pdf --pdf-engine weasyprint advice.md
+mdrender -f pdf advice.md
+mdrender -f pdf --pdf-engine weasyprint advice.md
 
 # A Dutch document as PDF, with Dutch hyphenation.
-mdrender -t pdf --nl advies.md
+mdrender -p --nl advies.md
 
 # HTML with a dark page.
 mdrender --dark notes.md
 
-# From stdin to stdout.
+# A quick look at the PDF, without writing it next to the document.
+mdrender --pdf --temp --open advice.md
+
+# From stdin to stdout, and from stdin to a browser.
 cat notes.md | mdrender > notes.html
+cat notes.md | mdrender --open
 ```
 
 ## How it works
@@ -520,7 +532,7 @@ Use `"mdrender --link-ext"` to also rewrite links to other Markdown files.
 - **ODT links start with `../`.** ODT stores relative links relative to the document package.
   LibreOffice resolves them correctly.
 - **No DOCX, ODT or PDF on a terminal.** `mdrender` refuses to write binary output to a terminal.
-  Use `--output` or redirect stdout.
+  Use `--output`, `--temp` or `--open`, or redirect stdout.
 - **PDF hyphenation is English by default.** Typst and LaTeX hyphenate by the document language.
   Set it with `--lang` or a shortcut such as `--nl`, or in the document, see [Language](#language).
 - **Own ODT reference document without page options.** It needs a paragraph style `Pagebreak` for
