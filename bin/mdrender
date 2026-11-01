@@ -8,11 +8,16 @@
 #   mdrender [option...] [file.md ...] [-- extra pandoc options]
 #
 # Options:
-#   --to|-t FORMAT        Output format: html (default), docx, odt or pdf.
+#   --format|-f FORMAT    Output format: html (default), docx, odt or pdf.
+#   --pdf|-p              Short for --format pdf.
 #   --pdf-engine ENGINE   PDF engine: auto (default), typst, latex, weasyprint
 #                         or libreoffice. The default can also be set with
 #                         the environment variable MDRENDER_PDF_ENGINE.
 #   --output|-o FILE      Output file, for a single input only. "-" means stdout.
+#   --temp|-t             Write the output to a new temporary folder instead of
+#                         next to the input or to stdout. The files are kept.
+#   --open|-O             Open each output file in its default application.
+#                         For input from stdin, this implies --temp.
 #   --link-ext|-l         Rewrite relative .md links to the output extension,
 #                         e.g. other.md#part becomes other.html#part. Not for
 #                         pdf: there, links to other files become plain text.
@@ -37,7 +42,8 @@
 #   --reference-doc FILE  Style template for docx/odt, and for pdf with the
 #                         libreoffice engine (fonts, styles, page setup).
 #
-# Without files, or with "-", input is read from stdin and written to stdout.
+# Without files, or with "-", input is read from stdin and written to stdout,
+# or with --temp or --open to a temporary file named stdin.FORMAT.
 # Anything after "--" is passed to pandoc unchanged.
 #
 # Directives in the document, each an HTML comment on a line of its own:
@@ -46,11 +52,13 @@
 #
 # Examples:
 #   mdrender advice.md plan.md --link-ext
-#   mdrender -t odt advice.md
-#   mdrender -t docx --landscape --paper a3 overview.md
-#   mdrender -t pdf --pdf-engine weasyprint advice.md
-#   mdrender -t pdf --nl advies.md
+#   mdrender -f odt advice.md
+#   mdrender -f docx --landscape --paper a3 overview.md
+#   mdrender -f pdf --pdf-engine weasyprint advice.md
+#   mdrender -p --nl advies.md
+#   mdrender --pdf --temp --open advice.md
 #   cat notes.md | mdrender > notes.html
+#   cat notes.md | mdrender --open
 #
 # How it works, and how to install it: README.md in the MarkDownRender
 # repository, https://github.com/HayoBaan/MarkDownRender
@@ -58,7 +66,7 @@
 set -euo pipefail
 
 readonly PROGRAM="$(basename "$0")"
-readonly VERSION="0.002"
+readonly VERSION="0.003"
 
 # Prints the header comment of this script as its help
 help() {
@@ -111,6 +119,8 @@ has_yaml_title() {
 
 format="html"
 output=""
+temp="false"
+open_output="false"
 link_ext="false"
 shift_headings="true"
 margin="2em"
@@ -133,9 +143,12 @@ esac
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --version) echo "${PROGRAM} ${VERSION}"; exit 0 ;;
-    -t | --to) format="${2:?missing format}"; shift 2 ;;
+    -f | --format) format="${2:?missing format}"; shift 2 ;;
+    -p | --pdf) format="pdf"; shift ;;
     --pdf-engine) pdf_engine="${2:?missing PDF engine}"; shift 2 ;;
     -o | --output) output="${2:?missing output file}"; shift 2 ;;
+    -t | --temp) temp="true"; shift ;;
+    -O | --open) open_output="true"; shift ;;
     -l | --link-ext) link_ext="true"; shift ;;
     --no-shift) shift_headings="false"; shift ;;
     --lang) lang="${2:?missing language}"; shift 2 ;;
@@ -208,6 +221,26 @@ if [[ ${#inputs[@]} -eq 0 ]]; then
 fi
 if [[ -n "${output}" && ${#inputs[@]} -gt 1 ]]; then
   die "--output can only be used with a single input"
+fi
+if [[ -n "${output}" && "${temp}" == "true" ]]; then
+  die "--temp and --output cannot be combined"
+fi
+if [[ "${output}" == "-" && "${open_output}" == "true" ]]; then
+  die "--open needs an output file, not stdout"
+fi
+
+# Prints the command that opens a file in its default application, or exits
+# when there is none. Linux uses xdg-open, because some distributions have an
+# unrelated command named open.
+open_command() {
+  case "$(uname -s)" in
+    Darwin) echo "open" ;;
+    *) command -v xdg-open || die "--open needs xdg-open, which is not installed" ;;
+  esac
+}
+
+if [[ "${open_output}" == "true" ]]; then
+  opener="$(open_command)"
 fi
 
 case "${paper}" in
@@ -687,7 +720,7 @@ render() {
   esac
 
   if [[ "${target}" == "-" && "${format}" != "html" && -t 1 ]]; then
-    die "${name}: refusing to write ${format} to a terminal (use --output or redirect stdout)"
+    die "${name}: refusing to write ${format} to a terminal (use --output, --temp or --open, or redirect stdout)"
   fi
 
   if [[ "${format}" != "pdf" ]]; then
@@ -724,21 +757,42 @@ render() {
   fi
 }
 
+# The folder for --temp output. It is created on first use, and kept after
+# mdrender exits, so the files can still be opened.
+temp_output_dir=""
+
 for input in "${inputs[@]}"; do
   if [[ "${input}" == "-" ]]; then
-    stdin_copy="${tmp_dir}/stdin.md"
-    cat > "${stdin_copy}"
-    render "${stdin_copy}" "${output:--}" "stdin" "${PWD}"
+    input_file="${tmp_dir}/stdin.md"
+    cat > "${input_file}"
+    name="stdin"
+    resource_dir="${PWD}"
   else
     [[ -f "${input}" ]] || die "${input}: no such file"
-    if [[ -n "${output}" ]]; then
-      target="${output}"
-    else
-      target="${input%.*}.${format}"
+    input_file="${input}"
+    name="$(basename "${input%.*}")"
+    resource_dir="$(dirname "${input}")"
+  fi
+
+  if [[ -n "${output}" ]]; then
+    target="${output}"
+  elif [[ "${temp}" == "true" || ( "${input}" == "-" && "${open_output}" == "true" ) ]]; then
+    if [[ -z "${temp_output_dir}" ]]; then
+      temp_base="${TMPDIR:-/tmp}"
+      temp_output_dir="$(mktemp -d "${temp_base%/}/mdrender.XXXXXX")"
     fi
-    render "${input}" "${target}" "$(basename "${input%.*}")" "$(dirname "${input}")"
-    if [[ "${target}" != "-" ]]; then
-      echo "${PROGRAM}: wrote ${target}" >&2
-    fi
+    target="${temp_output_dir}/${name}.${format}"
+  elif [[ "${input}" == "-" ]]; then
+    target="-"
+  else
+    target="${input%.*}.${format}"
+  fi
+
+  render "${input_file}" "${target}" "${name}" "${resource_dir}"
+  if [[ "${target}" != "-" ]]; then
+    echo "${PROGRAM}: wrote ${target}" >&2
+  fi
+  if [[ "${open_output}" == "true" ]]; then
+    "${opener}" "${target}"
   fi
 done
