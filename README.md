@@ -110,6 +110,8 @@ mdrender [option...] [file.md ...] [-- extra pandoc options]
   --reference-doc FILE  Style template for docx/odt, and for pdf via libreoffice.
 ```
 
+Short options can be combined: `-tp` is `-t -p`. An argument can be attached: `-fodt` is `-f odt`.
+
 Input and output:
 
 - A file `foo.md` is written next to it as `foo.html`, `foo.docx`, `foo.odt` or `foo.pdf`.

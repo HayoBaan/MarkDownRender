@@ -44,6 +44,8 @@
 #
 # Without files, or with "-", input is read from stdin and written to stdout,
 # or with --temp or --open to a temporary file named stdin.FORMAT.
+# Short options can be combined (-tp is -t -p), and take an attached
+# argument (-fodt is -f odt).
 # Anything after "--" is passed to pandoc unchanged.
 #
 # Directives in the document, each an HTML comment on a line of its own:
@@ -66,7 +68,7 @@
 set -euo pipefail
 
 readonly PROGRAM="$(basename "$0")"
-readonly VERSION="0.003"
+readonly VERSION="0.004"
 
 # Prints the header comment of this script as its help
 help() {
@@ -164,6 +166,10 @@ while [[ $# -gt 0 ]]; do
     --page-margin) page_margin="${2:?missing margin}"; page_explicit="true"; shift 2 ;;
     --) shift; pandoc_extra=("$@"); break ;;
     -) inputs+=("-"); shift ;;
+    # A short option that takes an argument, with the argument attached: -fpdf is -f pdf
+    -[fo]?*) set -- "${1:0:2}" "${1:2}" "${@:2}" ;;
+    # Combined short options: -tp is -t -p
+    -[!-]?*) set -- "${1:0:2}" "-${1:2}" "${@:2}" ;;
     -*) echo "${PROGRAM}: unknown option: $1" >&2; usage >&2; exit 1 ;;
     *) inputs+=("$1"); shift ;;
   esac
