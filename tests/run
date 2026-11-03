@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+# run — run the tests of MarkDownRender: the filter tests and the mdrender tests
+#
+# Usage:
+#   run --help|-h
+#   run
+#
+# Options:
+#   --help|-h  Show this help.
+#
+# It lives in the tests folder, so from the repository root it is tests/run.
+# The filter tests (tests/lua/*_test.lua) run with pandoc lua. The mdrender
+# tests (tests/*.bats) run with Bats, against the filters in this repository.
+#
+# Exit status: 0 when all tests passed, 1 when a test failed, and 77 when tests
+# were skipped because pandoc or bats is not installed. The tests that could
+# run did run, and none of them failed. 77 is the status that automake reads as
+# "skipped".
+
+set -uo pipefail
+
+readonly PROGRAM="$(basename "$0")"
+readonly SKIPPED=77
+
+# Prints the header comment of this script as its help
+help() {
+  sed -n '3,/^$/s/^# \{0,1\}//p' "$0"
+}
+
+# Prints the Usage part of the header comment
+usage() {
+  sed -n '/^# Usage:/,/^#$/s/^# \{0,1\}//p' "$0"
+}
+
+case ${1:-} in
+  --help|-h) help; exit 0 ;;
+esac
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    *) echo "${PROGRAM}: unknown argument: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+# Bats changes directories itself. With CDPATH set, each cd prints a line.
+unset CDPATH
+
+tests_dir="$(cd "$(dirname "$0")" && pwd)"
+failed="false"
+missing=()
+
+if ! command -v pandoc >/dev/null; then
+  missing+=("pandoc")
+else
+  for test_file in "${tests_dir}"/lua/*_test.lua; do
+    echo "# ${test_file#"${tests_dir}/"}"
+    pandoc lua "${test_file}" || failed="true"
+  done
+fi
+
+if ! command -v bats >/dev/null; then
+  missing+=("bats")
+elif [[ ${#missing[@]} -eq 0 ]]; then
+  bats "${tests_dir}" || failed="true"
+fi
+
+if [[ "${failed}" == "true" ]]; then
+  echo "${PROGRAM}: tests failed" >&2
+  exit 1
+fi
+if [[ ${#missing[@]} -gt 0 ]]; then
+  echo "${PROGRAM}: tests skipped: ${missing[*]} not installed" >&2
+  exit "${SKIPPED}"
+fi
