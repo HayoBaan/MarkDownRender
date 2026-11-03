@@ -36,6 +36,10 @@ MarkDownRender/
 │   └── table-widths.lua  widens LaTeX table columns to fit their longest word
 ├── install.manifest      what to install, and where
 ├── install.sh            installs the files listed in install.manifest
+├── tests/
+│   ├── lua/              tests of the filters, run with pandoc lua
+│   ├── mdrender.bats     tests of mdrender, run with Bats
+│   └── run               runs all tests
 ├── LICENSE               the MIT License
 └── README.md
 ```
@@ -528,6 +532,22 @@ default:
 ```
 
 Use `"mdrender --link-ext"` to also rewrite links to other Markdown files.
+
+## Tests
+
+`tests/run` runs all tests. They need pandoc, and [Bats](https://github.com/bats-core/bats-core)
+for the tests of `mdrender` (`brew install bats-core` on macOS). Installing `mdrender` doesn't need
+Bats.
+
+- The filter tests in `tests/lua` run each filter on small documents, with `pandoc lua`, and check
+  the resulting document. A single file runs with `pandoc lua tests/lua/directives_test.lua`.
+- The tests in `tests/mdrender.bats` run `mdrender` itself, with HTML output: options, the title,
+  the language and links. They install this repository with `install.sh --symlink` into a temporary
+  folder. That way they test the filters here, not the installed ones. Run them alone with
+  `bats tests`.
+
+`tests/run` exits with status 0 when all tests pass, and 1 when a test fails. When pandoc or Bats
+is missing, it runs the tests it can and exits with status 77, which means "skipped".
 
 ## Known limitations
 
