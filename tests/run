@@ -9,14 +9,13 @@
 # Options:
 #   --help|-h  Show this help.
 #
-# It lives in the tests folder, so from the repository root it is tests/run.
-# The filter tests (tests/lua/*_test.lua) run with pandoc lua. The mdrender
-# tests (tests/*.bats) run with Bats, against the filters in this repository.
+# It lives in the tests folder, so from the repository root it is tests/run. The filter tests
+# (tests/lua/*_test.lua) run with pandoc lua. The mdrender tests (tests/*.bats) run with Bats,
+# against the filters in this repository.
 #
-# Exit status: 0 when all tests passed, 1 when a test failed, and 77 when tests
-# were skipped because pandoc or bats is not installed. The tests that could
-# run did run, and none of them failed. 77 is the status that automake reads as
-# "skipped".
+# Exit status: 0 when all tests passed, 1 when a test failed, and 77 when tests were skipped because
+# pandoc or bats is not installed. The tests that could run did run, and none of them failed. 77 is
+# the status that automake reads as "skipped".
 
 set -uo pipefail
 

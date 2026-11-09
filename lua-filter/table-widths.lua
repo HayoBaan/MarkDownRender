@@ -1,29 +1,25 @@
 --[[
-table-widths.lua — Pandoc Lua filter that widens LaTeX table columns to fit
-their longest word.
+table-widths.lua — Pandoc Lua filter that widens LaTeX table columns to fit their longest word.
 
-For a pipe table with a line wider than 72 characters, pandoc sets each
-column's width from the length of its dash line. LaTeX keeps those widths, so
-a narrow column can be too narrow for a word in it. That word then runs into
-the next column. This filter estimates the width of the longest word in each
-column. A column that is too narrow gets that width, taken from the columns
-with room to spare.
+For a pipe table with a line wider than 72 characters, pandoc sets each column's width from the
+length of its dash line. LaTeX keeps those widths, so a narrow column can be too narrow for a word
+in it. That word then runs into the next column. This filter estimates the width of the longest word
+in each column. A column that is too narrow gets that width, taken from the columns with room to
+spare.
 
-When the longest words of all columns together don't fit, the filter first
-sets the table in a smaller font: `\small`, then `\footnotesize`. When even
-that doesn't fit, it prints a warning. The column widths then follow the
-longest words, so any overlap is spread over all columns.
+When the longest words of all columns together don't fit, the filter first sets the table in a
+smaller font: `\small`, then `\footnotesize`. When even that doesn't fit, it prints a warning. The
+column widths then follow the longest words, so any overlap is spread over all columns.
 
-The width of a word is estimated from its characters, since a filter cannot
-measure text. Inline code counts as monospace. A word may break at a space,
-after a hyphen, and at a LaTeX `\allowbreak`, which `code-breaks.lua` adds.
-Run this filter after that one.
+The width of a word is estimated from its characters, since a filter cannot measure text. Inline
+code counts as monospace. A word may break at a space, after a hyphen, and at a LaTeX `\allowbreak`,
+which `code-breaks.lua` adds. Run this filter after that one.
 
 It needs the text width as metadata, e.g. 170mm for A4 with 2cm margins:
   pandoc -L code-breaks.lua -L table-widths.lua -M table-text-width=170mm input.md -o output.pdf
 
-The filter only changes LaTeX output, and only tables with relative column
-widths. Without `table-text-width` it does nothing.
+The filter only changes LaTeX output, and only tables with relative column widths. Without
+`table-text-width` it does nothing.
 ]]
 
 --- Estimated character widths in em for Latin Modern, LaTeX's default font.
@@ -82,9 +78,8 @@ local function longest_word_em(cell)
     current = 0
   end
   local function add_text(text, mono)
-    -- A hyphen in normal text is a break opportunity after it. A hyphen
-    -- between digits, as in a date, counts as part of the word, so the column
-    -- gets wide enough to keep such a number whole.
+    -- A hyphen in normal text is a break opportunity after it. A hyphen between digits, as in a
+    -- date, counts as part of the word, so the column gets wide enough to keep such a number whole.
     local parts = { text }
     if not mono then
       parts = {}
@@ -157,9 +152,9 @@ local function cells_per_column(tbl)
   return columns
 end
 
---- Returns the column widths that give each column at least its minimum width,
---- taking the difference from the columns with room to spare.
---- Returns nil when the minimum widths together exceed the line.
+--- Returns the column widths that give each column at least its minimum width, taking the
+--- difference from the columns with room to spare. Returns nil when the minimum widths together
+--- exceed the line.
 local function fit_widths(widths, minimums)
   local total_minimum, deficit, slack = 0, 0, 0
   for i, width in ipairs(widths) do
@@ -199,8 +194,7 @@ local function table_name(tbl)
   return "'" .. table.concat(names, " | ") .. "'"
 end
 
---- Returns the column widths of a table as a list, or nil when a column
---- has no relative width.
+--- Returns the column widths of a table as a list, or nil when a column has no relative width.
 local function relative_widths(tbl)
   local widths = {}
   for i, colspec in ipairs(tbl.colspecs) do
@@ -213,8 +207,7 @@ local function relative_widths(tbl)
   return widths
 end
 
---- Returns the table with its column widths set, wrapped in a smaller font
---- when needed.
+--- Returns the table with its column widths set, wrapped in a smaller font when needed.
 local function fit_table(tbl, text_width_pt, font_pt)
   local widths = relative_widths(tbl)
   if not widths then

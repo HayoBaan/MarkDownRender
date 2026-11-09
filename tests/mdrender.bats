@@ -2,18 +2,19 @@
 
 # mdrender.bats — end-to-end tests of mdrender, with HTML output.
 #
-# mdrender reads its filters from pandoc's user data directory. The tests
-# install this repository with install.sh --symlink into a temporary home and
-# data directory, so they test the filters in this repository, not the
-# installed ones.
+# mdrender reads its filters from pandoc's user data directory. The tests install this repository
+# with install.sh --symlink into a temporary home and data directory, so they test the filters in
+# this repository, not the installed ones.
 #
 # Covered:
 #   - options: --help, --version, an unknown option, --output with several
 #     inputs, and the error when the filters aren't installed;
-#   - headings and title: one level-1 heading becomes the title, also after
-#     HTML comments; several level-1 headings give a warning and no shift; a
-#     heading in a fenced code block isn't counted; --no-shift;
-#   - language: from a lang directive, YAML metadata, --lang and --gb;
+#   - headings and title:
+#     - one level-1 heading becomes the title, also after HTML comments;
+#     - several level-1 headings give a warning and no shift;
+#     - a heading in a fenced code block isn't counted;
+#     - --no-shift;
+#   - language: from a lang directive, YAML metadata, --lang, and --gb;
 #   - links: --link-ext rewrites relative .md links;
 #   - input and output: stdin to stdout, and a file next to the input.
 #
@@ -34,8 +35,8 @@ setup() {
   cd "${BATS_TEST_TMPDIR}"
 }
 
-# Writes the text to doc.md, and renders it to HTML on stdout, with the given
-# extra options. The output and status end up in Bats' $output, $stderr and
+# Writes the text to doc.md, and renders it to HTML on stdout, with the given extra options. The
+# output and status end up in Bats' $output, $stderr, and
 # $status.
 render() {
   local text="$1"
@@ -47,7 +48,7 @@ render() {
 @test "--help shows the help" {
   run --separate-stderr "${MDRENDER}" --help
   [[ "${status}" -eq 0 ]]
-  [[ "${lines[0]}" == "mdrender — render Markdown to HTML, DOCX, ODT or PDF, including diagrams" ]]
+  [[ "${lines[0]}" == "mdrender — render Markdown to HTML, DOCX, ODT, or PDF, including diagrams" ]]
   [[ -z "${stderr}" ]]
 }
 

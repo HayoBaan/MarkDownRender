@@ -4,25 +4,24 @@ diagram.lua — Pandoc Lua filter that turns diagrams into images.
 Supported diagram types:
   - Mermaid: ```mermaid code blocks, rendered with mmdc (Mermaid CLI).
   - Graphviz: ```dot or ```graphviz code blocks, rendered with dot.
-  - draw.io: images that refer to a .drawio file, exported with the draw.io
-    desktop app, e.g. ![Release flow](flow.drawio).
+  - draw.io: images that refer to a .drawio file, exported with the draw.io desktop app, e.g.
+    ![Release flow](flow.drawio).
 
-Each diagram is replaced by an image with the class `diagram`, so a stylesheet
-can style diagrams, e.g. give them a light background on a dark page. HTML and
-EPUB output get SVG, every other output format gets PNG. Rendered images are cached by content hash, so
-unchanged diagrams are not rendered again. Rendering a diagram can take a
-second or two, because mmdc and draw.io start a browser engine.
+Each diagram is replaced by an image with the class `diagram`, so a stylesheet can style diagrams,
+e.g. give them a light background on a dark page. HTML and EPUB output get SVG, every other output
+format gets PNG. Rendered images are cached by content hash, so unchanged diagrams are not rendered
+again. Rendering a diagram can take a second or two, because mmdc and draw.io start a browser
+engine.
 
 Usage:
   pandoc -L diagram.lua input.md -o output.html
 
-Combine with --embed-resources to inline the images into a single HTML file.
-Without it, the HTML references the cached image files by absolute path.
+Combine with --embed-resources to inline the images into a single HTML file. Without it, the HTML
+references the cached image files by absolute path.
 
-The metadata field `diagram-format` overrides the image type: `svg` or `png`.
-For example, WeasyPrint turns HTML into PDF, but cannot show the labels that
-Mermaid and draw.io put in SVG as HTML (foreignObject). Use
-`-M diagram-format=png` there.
+The metadata field `diagram-format` overrides the image type: `svg` or `png`. For example,
+WeasyPrint turns HTML into PDF, but cannot show the labels that Mermaid and draw.io put in SVG as
+HTML (foreignObject). Use `-M diagram-format=png` there.
 
 Optional attributes on a code block:
   ```{.mermaid caption="Text" width="80%"}
@@ -63,8 +62,8 @@ local PNG_SCALE = 2
 --- Inches per supported length unit, for `diagram-max-width` and `diagram-max-height`.
 local INCHES_PER_UNIT = { ["in"] = 1, cm = 1 / 2.54, mm = 1 / 25.4, pt = 1 / 72 }
 
---- Returns the 1-based index of a draw.io page given by number or by name, or
---- nil plus an error message. Page names are read from the file's XML.
+--- Returns the 1-based index of a draw.io page given by number or by name, or nil plus an error
+--- message. Page names are read from the file's XML.
 local function drawio_page_index(path, page)
   if page:match("^%d+$") then
     return page
@@ -126,10 +125,9 @@ local CODE_TYPES = {
   },
 }
 
---- The diagram types stored in their own file, by file extension. For each
---- type, the fields are those of CODE_TYPES, except classes and input_ext.
---- The args function also gets the path of the diagram file as its input, and
---- returns nil plus an error message when the attributes are wrong.
+--- The diagram types stored in their own file, by file extension. For each type, the fields are
+--- those of CODE_TYPES, except classes and input_ext. The args function also gets the path of the
+--- diagram file as its input, and returns nil plus an error message when the attributes are wrong.
 local FILE_TYPES = {
   drawio = {
     command = os.getenv("DIAGRAM_DRAWIO") or "drawio",
@@ -191,8 +189,8 @@ local function read_file(path)
   return data
 end
 
---- Returns the image type to render: the override when given, or else the
---- type that suits the current output format.
+--- Returns the image type to render: the override when given, or else the type that suits the
+--- current output format.
 local function image_type(override)
   if override then
     return override
@@ -213,7 +211,7 @@ local function to_inches(length)
   return tonumber(number) * factor
 end
 
---- Returns the cache key for a diagram: its type, image type, options and contents.
+--- Returns the cache key for a diagram: its type, image type, options, and contents.
 local function cache_key(name, spec, ext, attributes, content)
   local parts = { name, ext }
   for _, option in ipairs(spec.options) do
@@ -224,8 +222,8 @@ local function cache_key(name, spec, ext, attributes, content)
 end
 
 --- Renders one diagram, returning the image path, or nil plus an error message.
---- Arguments: the type name and spec, the image type, the attributes, the
---- diagram text or file contents, and for a file type the file's path.
+--- Arguments: the type name and spec, the image type, the attributes, the diagram text or file
+--- contents, and for a file type the file's path.
 local function render(name, spec, ext, attributes, content, source)
   local out = pandoc.path.join({ cache_dir(), cache_key(name, spec, ext, attributes, content) .. "." .. ext })
   if file_exists(out) then
@@ -254,8 +252,8 @@ local function render(name, spec, ext, attributes, content, source)
   return out
 end
 
---- Returns the width to give a PNG diagram: its natural width, scaled down when
---- needed so that both its width and its height fit the limits that are given.
+--- Returns the width to give a PNG diagram: its natural width, scaled down when needed so that both
+--- its width and its height fit the limits that are given.
 local function png_width(path, limits)
   local data = read_file(path)
   if not data then
@@ -288,8 +286,8 @@ local function code_type(classes)
   return nil
 end
 
---- Returns the path of an image file, looked up in pandoc's resource path as
---- pandoc does for other images, or nil.
+--- Returns the path of an image file, looked up in pandoc's resource path as pandoc does for other
+--- images, or nil.
 local function find_file(src)
   if pandoc.path.is_absolute(src) then
     return file_exists(src) and src or nil
@@ -344,8 +342,8 @@ local function image_handler(limits, ext)
       return nil
     end
 
-    -- Without a rendered image, the description replaces the image, as pandoc
-    -- does for a missing image. Most writers cannot use the diagram file itself.
+    -- Without a rendered image, the description replaces the image, as pandoc does for a missing
+    -- image. Most writers cannot use the diagram file itself.
     local source = find_file(image.src)
     local content = source and read_file(source)
     if not content then
@@ -373,8 +371,8 @@ local function image_handler(limits, ext)
   end
 end
 
---- Returns the size limits from the metadata, in inches: a table with the
---- optional fields width and height.
+--- Returns the size limits from the metadata, in inches: a table with the optional fields width and
+--- height.
 local function size_limits(meta)
   local limits = {}
   for _, dimension in ipairs({ "width", "height" }) do

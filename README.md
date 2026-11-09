@@ -1,22 +1,22 @@
 # MarkDownRender
 
-Render Markdown to HTML, DOCX, ODT or PDF in one command, diagrams included.
+Render Markdown to HTML, DOCX, ODT, or PDF in one command, diagrams included.
 
 `mdrender` is a small wrapper around [pandoc](https://pandoc.org). It adds five Lua filters and
 sensible defaults:
 
-- Diagrams become images: Mermaid and Graphviz code blocks, and draw.io files. HTML gets SVG,
-  DOCX, ODT and PDF get PNG.
+- Diagrams become images: Mermaid and Graphviz code blocks, and draw.io files. HTML gets SVG, DOCX,
+  ODT, and PDF get PNG.
 - Links to other Markdown files can be rewritten to the output format, e.g. `other.md` becomes
   `other.html`.
 - Directives in the document, as invisible HTML comments: the document language, and page breaks.
-- Long inline code, such as a path or `Class.method`, can break across lines in PDF. It stays
-  within its table column and on the page.
+- Long inline code, such as a path or `Class.method`, can break across lines in PDF. It stays within
+  its table column and on the page.
 - With LaTeX, a table column that is too narrow for its longest word gets wider.
 - HTML fills the window, with a small margin. It is light by default, or dark, or follows the
   system.
-- DOCX, ODT and PDF use A4 portrait with 2 cm margins, instead of pandoc's US Letter.
-- PDF uses the best PDF engine that is installed: Typst, LaTeX, WeasyPrint or LibreOffice.
+- DOCX, ODT, and PDF use A4 portrait with 2 cm margins, instead of pandoc's US Letter.
+- PDF uses the best PDF engine that is installed: Typst, LaTeX, WeasyPrint, or LibreOffice.
 - A single level-1 heading becomes the document title.
 
 The Lua filters are installed in pandoc's filters folder. `mdrender` uses them from there, and so
@@ -48,8 +48,8 @@ MarkDownRender/
 
 - [pandoc](https://pandoc.org) 3 or later, with Lua support (`brew install pandoc`).
 - For diagrams, the tool for each type you use:
-  - [Mermaid CLI](https://github.com/mermaid-js/mermaid-cli) (`mmdc`):
-    `npm install -g @mermaid-js/mermaid-cli`.
+  - [Mermaid CLI](https://github.com/mermaid-js/mermaid-cli) (`mmdc`): `npm install -g
+    @mermaid-js/mermaid-cli`.
   - [Graphviz](https://graphviz.org) (`dot`): `brew install graphviz`.
   - [draw.io desktop](https://www.drawio.com) (`drawio`): `brew install --cask drawio`.
 - `python3`, for the DOCX/ODT page setup.
@@ -65,8 +65,8 @@ bin/              $TARGET/bin/
 lua-filter/*.lua  ${XDG_DATA_HOME:-~/.local/share}/pandoc/filters/
 ```
 
-- `mdrender` goes to `bin` in the target root, your home directory by default. That folder must
-  be on your `PATH`.
+- `mdrender` goes to `bin` in the target root, your home directory by default. That folder must be
+  on your `PATH`.
 - The Lua filters go to pandoc's filters folder.
 
 Install with:
@@ -75,15 +75,14 @@ Install with:
 ./install.sh
 ```
 
-The files are copied. With `--symlink` they are linked instead, so later changes in this
-repository take effect without reinstalling. Running it again with or without `--symlink` switches
-between links and copies. Other files with the same name are only replaced with `--force`. Use
-`--target` for another target root, and `--dry-run` to only see what would happen. Run
-`./install.sh --help` for all options.
+The files are copied. With `--symlink` they are linked instead, so later changes in this repository
+take effect without reinstalling. Running it again with or without `--symlink` switches between
+links and copies. Other files with the same name are only replaced with `--force`. Use `--target`
+for another target root, and `--dry-run` to only see what would happen. Run `./install.sh --help`
+for all options.
 
 The filters folder in the manifest assumes pandoc's default user data directory. Check yours with
-`pandoc --version`. If it is another folder, such as `~/.pandoc`, install the filters there by
-hand.
+`pandoc --version`. If it is another folder, such as `~/.pandoc`, install the filters there by hand.
 
 ## Usage
 
@@ -118,14 +117,14 @@ Short options can be combined: `-tp` is `-t -p`. An argument can be attached: `-
 
 Input and output:
 
-- A file `foo.md` is written next to it as `foo.html`, `foo.docx`, `foo.odt` or `foo.pdf`.
+- A file `foo.md` is written next to it as `foo.html`, `foo.docx`, `foo.odt`, or `foo.pdf`.
 - Without a file, or with `-`, the input is read from stdin and written to stdout.
 - `--output` sets another output location, for a single input.
-- `--temp` writes the output to a new folder in `$TMPDIR` (or `/tmp`), with the same file name.
-  Use it to view a document without leaving files next to it. The folder is kept, so the files can
-  still be opened after `mdrender` exits.
-- `--open` opens each output file in its default application: `open` on macOS, `xdg-open`
-  elsewhere. Input from stdin then goes to a temporary file, as with `--temp`.
+- `--temp` writes the output to a new folder in `$TMPDIR` (or `/tmp`), with the same file name. Use
+  it to view a document without leaving files next to it. The folder is kept, so the files can still
+  be opened after `mdrender` exits.
+- `--open` opens each output file in its default application: `open` on macOS, `xdg-open` elsewhere.
+  Input from stdin then goes to a temporary file, as with `--temp`.
 - Anything after `--` is passed to pandoc unchanged.
 
 Examples:
@@ -177,9 +176,9 @@ Without a title, the HTML page title is the file name.
 
 ### HTML layout
 
-The HTML is a single file, with all images embedded (`--embed-resources`). It uses pandoc's
-default template, with the width limit removed and a fixed margin. Use `--max-width` and
-`--margin` to change that.
+The HTML is a single file, with all images embedded (`--embed-resources`). It uses pandoc's default
+template, with the width limit removed and a fixed margin. Use `--max-width` and `--margin` to
+change that.
 
 `--theme` chooses the colors of the page:
 
@@ -187,25 +186,25 @@ default template, with the width limit removed and a fixed margin. Use `--max-wi
 - `dark`: light text on a dark page. `--dark` is short for this.
 - `system`: follows the light or dark theme of the system, and switches along with it.
 
-Pandoc's default template (pandoc 3.12 or later) defines both color sets. `mdrender` chooses
-between them with the CSS property `color-scheme`. Printed pages are always light.
+Pandoc's default template (pandoc 3.12 or later) defines both color sets. `mdrender` chooses between
+them with the CSS property `color-scheme`. Printed pages are always light.
 
 Diagrams are drawn for a light background, and are hard to read on a dark page. So every diagram
 sits on a light panel with rounded corners. On a light page, that panel is invisible.
 
 ### DOCX and ODT page setup
 
-Pandoc takes the page size and margins from a *reference document*. `mdrender` generates one on
-the fly with the requested paper size, orientation and margins. It starts from:
+Pandoc takes the page size and margins from a *reference document*. `mdrender` generates one on the
+fly with the requested paper size, orientation, and margins. It starts from:
 
 1. `reference.docx` or `reference.odt` in pandoc's user data directory, if present, or
 2. pandoc's built-in default.
 
-So you can keep your own fonts and styles in such a reference document, and still choose the
-paper size per run.
+So you can keep your own fonts and styles in such a reference document, and still choose the paper
+size per run.
 
-With `--reference-doc`, that document is used as is. Page options given together with it are
-applied on top of it.
+With `--reference-doc`, that document is used as is. Page options given together with it are applied
+on top of it.
 
 ### PDF engines
 
@@ -219,8 +218,7 @@ Pandoc needs a separate program to create a PDF. `mdrender` supports four of the
 | `libreoffice` | The ODT output          | `brew install --cask libreoffice` | [LibreOffice](https://www.libreoffice.org/download/)                                       |
 
 With `--pdf-engine auto`, the default, `mdrender` uses the first one installed, in the order of the
-table. Set `MDRENDER_PDF_ENGINE`, e.g. in your shell profile, to prefer another engine on a
-machine.
+table. Set `MDRENDER_PDF_ENGINE`, e.g. in your shell profile, to prefer another engine on a machine.
 
 Pros and cons, as found while testing on macOS:
 
@@ -243,23 +241,23 @@ Some notes per engine:
   It also shows the checkboxes of task lists (`- [ ]` and `- [x]`) as the math symbols `□` and `⊠`,
   as LaTeX does. Typst's default font has no checkbox characters. In a list of only task items,
   the checkbox replaces the bullet, as in the HTML.
-- **LaTeX** uses `xelatex`, `lualatex`, `tectonic` or `pdflatex`, whichever is found first.
-  Tectonic is the smallest LaTeX to install. It downloads the packages it needs on first use. A
-  full TeX Live, or MacTeX on macOS, also works, but is several gigabytes. BasicTeX (`brew install
-  --cask basictex`) is smaller, but needs extra packages before pandoc can use it. See [Creating a
-  PDF](https://pandoc.org/MANUAL.html#creating-a-pdf) in pandoc's manual.
+- **LaTeX** uses `xelatex`, `lualatex`, `tectonic`, or `pdflatex`, whichever is found first.
+  Tectonic is the smallest LaTeX to install. It downloads the packages it needs on first use. A full
+  TeX Live, or MacTeX on macOS, also works, but is several gigabytes. BasicTeX
+  (`brew install --cask basictex`) is smaller, but needs extra packages before pandoc can use it.
+  See [Creating a PDF](https://pandoc.org/MANUAL.html#creating-a-pdf) in pandoc's manual.
 
   With `--lang`, pandoc loads the LaTeX package `babel` for that language. Babel then needs the
   language and hyphenation files for it. Tectonic downloads these on first use, and a full TeX
   Live has them. With BasicTeX, install them with `tlmgr`, e.g. for Dutch:
   `sudo tlmgr install babel-dutch hyphen-dutch`.
-- **WeasyPrint** turns the HTML into PDF. Diagrams become PNG here, because WeasyPrint cannot
-  show the labels that Mermaid and draw.io put in their SVG. `mdrender` also keeps the
-  checkboxes of task lists on the line of their item, as in the HTML.
+- **WeasyPrint** turns the HTML into PDF. Diagrams become PNG here, because WeasyPrint cannot show
+  the labels that Mermaid and draw.io put in their SVG. `mdrender` also keeps the checkboxes of task
+  lists on the line of their item, as in the HTML.
 - **LibreOffice** converts the ODT output, so `--reference-doc` applies. `mdrender` runs it as
-  `soffice`, which must be on your `PATH`. Linux packages install it there. On macOS, the app
-  keeps it inside its bundle, so link it into a folder on your `PATH`, e.g.:
-  `ln -s /Applications/LibreOffice.app/Contents/MacOS/soffice ~/bin/soffice`.
+  `soffice`, which must be on your `PATH`. Linux packages install it there. On macOS, the app keeps
+  it inside its bundle, so link it into a folder on your `PATH`, e.g.: `ln -s
+  /Applications/LibreOffice.app/Contents/MacOS/soffice ~/bin/soffice`.
 
 Links behave the same with every engine:
 
@@ -272,14 +270,14 @@ Links behave the same with every engine:
 Only the look of links differs. Typst and LaTeX show them in blue, which `mdrender` sets.
 LibreOffice shows them blue and underlined. WeasyPrint follows the HTML style.
 
-The page options `--paper`, `--landscape` and `--page-margin` work with every engine.
+The page options `--paper`, `--landscape`, and `--page-margin` work with every engine.
 
 ### Language
 
 The document language is a language code such as `nl` or `en-GB`. There are three ways to set it:
 
-1. On the command line, with `--lang`. `--nl`, `--de`, `--fr`, `--es` and `--gb` are short for
-   Dutch, German, French, Spanish and British English.
+1. On the command line, with `--lang`. `--nl`, `--de`, `--fr`, `--es`, and `--gb` are short for
+   Dutch, German, French, Spanish, and British English.
 2. In the YAML metadata of the document, pandoc's standard way:
 
    ```markdown
@@ -294,8 +292,8 @@ The document language is a language code such as `nl` or `en-GB`. There are thre
 The first one that is set wins, in this order. So `--lang` overrides the document, and the YAML
 metadata overrides the directive.
 
-YAML metadata is pandoc's standard, but GitHub and GitLab show it as a table at the top of the
-page. The directive is an HTML comment, which they don't show.
+YAML metadata is pandoc's standard, but GitHub and GitLab show it as a table at the top of the page.
+The directive is an HTML comment, which they don't show.
 
 The language affects:
 
@@ -307,7 +305,7 @@ The language affects:
 ### Directives
 
 `directives.lua` handles directives in the document. A directive is an HTML comment on a line of its
-own, so GitHub, GitLab and other Markdown viewers don't show it:
+own, so GitHub, GitLab, and other Markdown viewers don't show it:
 
 | Directive           | Effect                                                                 |
 | ------------------- | ---------------------------------------------------------------------- |
@@ -325,8 +323,8 @@ A page break works in every output format with pages:
 | DOCX                      | a paragraph with a page break                      |
 | HTML                      | an element with `break-before: page`, for printing |
 
-`\newpage` on a line of its own is a page break too. Pandoc users know it from LaTeX. But GitHub
-and GitLab show it as text, so the directive is usually the better choice.
+`\newpage` on a line of its own is a page break too. Pandoc users know it from LaTeX. But GitHub and
+GitLab show it as text, so the directive is usually the better choice.
 
 For ODT, the reference document needs a paragraph style `Pagebreak`, with a page break before it.
 `mdrender` adds that style to the reference document it generates. Your own document from
@@ -349,12 +347,12 @@ Twee pagina's samenvatting.
 
 ### Content for one output format
 
-Pandoc can pass content unchanged to one output format, with a *raw block*. The block is
-marked with the format, e.g. `{=typst}`. Other formats leave it out. Use it for anything that
-Markdown cannot express, such as a layout detail that only matters in one format.
+Pandoc can pass content unchanged to one output format, with a *raw block*. The block is marked with
+the format, e.g. `{=typst}`. Other formats leave it out. Use it for anything that Markdown cannot
+express, such as a layout detail that only matters in one format.
 
-The format is the pandoc *writer*, not the format you ask `mdrender` for. A PDF can come from
-four writers, depending on the PDF engine:
+The format is the pandoc *writer*, not the format you ask `mdrender` for. A PDF can come from four
+writers, depending on the PDF engine:
 
 | `mdrender` output    | Raw block format                      |
 | -------------------- | ------------------------------------- |
@@ -386,11 +384,11 @@ Some examples:
 ```
 ````
 
-A raw block of one format is shown as a code block on GitHub and GitLab. For a page break, use
-the `<!-- newpage -->` directive instead. It also works with every writer.
+A raw block of one format is shown as a code block on GitHub and GitLab. For a page break, use the
+`<!-- newpage -->` directive instead. It also works with every writer.
 
-Pandoc's manual describes raw blocks under
-[Extension: raw_attribute](https://pandoc.org/MANUAL.html#extension-raw_attribute).
+Pandoc's manual describes raw blocks under [Extension:
+raw_attribute](https://pandoc.org/MANUAL.html#extension-raw_attribute).
 
 ### Diagrams
 
@@ -406,16 +404,16 @@ The image type depends on the output format:
 
 - HTML and EPUB get SVG.
 - Other formats get PNG, at twice the normal resolution so it stays sharp.
-- The metadata field `diagram-format` overrides that: `svg` or `png`. `mdrender` uses it for PDF
-  via WeasyPrint.
+- The metadata field `diagram-format` overrides that: `svg` or `png`. `mdrender` uses it for PDF via
+  WeasyPrint.
 
-PNG diagrams get an explicit width: their natural size, scaled down when needed to fit the text
-area of the page. A little room is left for a caption. `mdrender` passes the text area to the
-filter. Without it, a wide or tall diagram can run off the page, in ODT even more so, because
-pandoc's ODT writer does not scale images down.
+PNG diagrams get an explicit width: their natural size, scaled down when needed to fit the text area
+of the page. A little room is left for a caption. `mdrender` passes the text area to the filter.
+Without it, a wide or tall diagram can run off the page, in ODT even more so, because pandoc's ODT
+writer does not scale images down.
 
-Rendering takes a second or two per diagram, so the images are cached by content. The cache lives
-in `~/.cache/pandoc-diagram`, or in `$XDG_CACHE_HOME/pandoc-diagram`. Unchanged diagrams are not
+Rendering takes a second or two per diagram, so the images are cached by content. The cache lives in
+`~/.cache/pandoc-diagram`, or in `$XDG_CACHE_HOME/pandoc-diagram`. Unchanged diagrams are not
 rendered again.
 
 A code block can set a caption and width. A Graphviz block can also choose a layout engine:
@@ -431,17 +429,17 @@ digraph { a -> b -> c -> a }
 ```
 ````
 
-A draw.io image is found like any other image, relative to the document. Its description becomes
-the caption. It can choose a page, by number (from 1) or by name, and set a width:
+A draw.io image is found like any other image, relative to the document. Its description becomes the
+caption. It can choose a page, by number (from 1) or by name, and set a width:
 
 ```markdown
 ![Release flow](diagrams/flow.drawio){page="Hotfix" width="80%"}
 ```
 
-When rendering fails, the filter prints a warning. A code block then stays as is. A draw.io image
-is replaced by its description, as pandoc does for a missing image.
+When rendering fails, the filter prints a warning. A code block then stays as is. A draw.io image is
+replaced by its description, as pandoc does for a missing image.
 
-Other images, such as PNG, JPEG, GIF and SVG, need no filter. Pandoc handles them itself.
+Other images, such as PNG, JPEG, GIF, and SVG, need no filter. Pandoc handles them itself.
 
 ### Links
 
@@ -451,15 +449,15 @@ extension is that of the output format. A `#fragment` is kept, and absolute URLs
 PDF is different. Most PDF viewers refuse to open another file from a link. Preview on macOS, for
 example, is not allowed to by its sandbox, and Firefox ignores such links. So in a PDF, links to
 other local files become plain text, also without `--link-ext`. Web links and links within the
-document stay links. With Typst and LaTeX, `mdrender` also colors links blue, because both
-engines show them as plain text by default.
+document stay links. With Typst and LaTeX, `mdrender` also colors links blue, because both engines
+show them as plain text by default.
 
 ### Long inline code
 
-Typst, LaTeX and WeasyPrint don't break inline code by themselves. A long name such as
+Typst, LaTeX, and WeasyPrint don't break inline code by themselves. A long name such as
 `OrderService.calculateShippingCosts` then runs into the next table column, or off the page.
-`code-breaks.lua` adds a break opportunity after each `.`, `/`, `_`, `,`, `|`, `:` and `-` in
-inline code:
+`code-breaks.lua` adds a break opportunity after each `.`, `/`, `_`, `,`, `|`, `:` and `-` in inline
+code:
 
 | Engine      | Where      | How                                                   |
 | ----------- | ---------- | ----------------------------------------------------- |
@@ -472,24 +470,24 @@ Outside tables, Typst moves long code to a new line by itself. LaTeX doesn't, so
 works everywhere. With LaTeX, normal text also gets a break opportunity after a `/`, so e.g.
 `client/server` can break. Typst already breaks there, and WeasyPrint widens the column instead.
 
-With LaTeX, `mdrender` also uses `\sloppy`. LaTeX then accepts a loosely spaced line rather than
-one that runs past the margin. HTML output gets the same `<wbr>` in tables as WeasyPrint.
+With LaTeX, `mdrender` also uses `\sloppy`. LaTeX then accepts a loosely spaced line rather than one
+that runs past the margin. HTML output gets the same `<wbr>` in tables as WeasyPrint.
 
 ### Table column widths
 
 For a pipe table with a line wider than 72 characters, pandoc sets each column's width from the
-length of its dash line. LaTeX keeps those widths. A narrow column can then be too narrow for a
-word in it, which runs into the next column. Typst, WeasyPrint and LibreOffice size the columns
+length of its dash line. LaTeX keeps those widths. A narrow column can then be too narrow for a word
+in it, which runs into the next column. Typst, WeasyPrint, and LibreOffice size the columns
 themselves.
 
-So with LaTeX, `table-widths.lua` estimates the width of the longest word in each column. A word
-can break at a space, after a hyphen, and where `code-breaks.lua` allows it. A hyphen between
-digits, as in a date, counts as part of the word. A column that is too narrow gets wider. The
-extra width comes from the columns with room to spare.
+So with LaTeX, `table-widths.lua` estimates the width of the longest word in each column. A word can
+break at a space, after a hyphen, and where `code-breaks.lua` allows it. A hyphen between digits, as
+in a date, counts as part of the word. A column that is too narrow gets wider. The extra width comes
+from the columns with room to spare.
 
-When the longest words don't fit the line together, the table gets a smaller font: first
-`\small`, then `\footnotesize`. When even that is too wide, `mdrender` prints a warning that names
-the table by its header row. The columns may then overlap a little.
+When the longest words don't fit the line together, the table gets a smaller font: first `\small`,
+then `\footnotesize`. When even that is too wide, `mdrender` prints a warning that names the table
+by its header row. The columns may then overlap a little.
 
 The estimate counts characters, because a filter can't measure text. It assumes Latin Modern,
 LaTeX's default font. With another font set in the document, the widths can be a little off.
@@ -523,9 +521,8 @@ Settings:
 
 ## Emacs
 
-[markdown-mode](https://jblevins.org/projects/markdown-mode/) sends the buffer to
-`markdown-command` on stdin, and reads HTML from stdout. That is exactly what `mdrender` does by
-default:
+[markdown-mode](https://jblevins.org/projects/markdown-mode/) sends the buffer to `markdown-command`
+on stdin, and reads HTML from stdout. That is exactly what `mdrender` does by default:
 
 ```elisp
 (setq markdown-command "mdrender")
@@ -535,46 +532,46 @@ Use `"mdrender --link-ext"` to also rewrite links to other Markdown files.
 
 ## Tests
 
-`tests/run` runs all tests. They need pandoc, and [Bats](https://github.com/bats-core/bats-core)
-for the tests of `mdrender` (`brew install bats-core` on macOS). Installing `mdrender` doesn't need
+`tests/run` runs all tests. They need pandoc, and [Bats](https://github.com/bats-core/bats-core) for
+the tests of `mdrender` (`brew install bats-core` on macOS). Installing `mdrender` doesn't need
 Bats.
 
 - The filter tests in `tests/lua` run each filter on small documents, with `pandoc lua`, and check
   the resulting document. A single file runs with `pandoc lua tests/lua/directives_test.lua`.
 - The tests in `tests/mdrender.bats` run `mdrender` itself, with HTML output: options, the title,
-  the language and links. They install this repository with `install.sh --symlink` into a temporary
+  the language, and links. They install this repository with `install.sh --symlink` into a temporary
   folder. That way they test the filters here, not the installed ones. Run them alone with
   `bats tests`.
 
-`tests/run` exits with status 0 when all tests pass, and 1 when a test fails. When pandoc or Bats
-is missing, it runs the tests it can and exits with status 77, which means "skipped".
+`tests/run` exits with status 0 when all tests pass, and 1 when a test fails. When pandoc or Bats is
+missing, it runs the tests it can and exits with status 77, which means "skipped".
 
 ## Known limitations
 
-- **Heading detection is a heuristic.** It counts `#` and `===` headings outside fenced code
-  blocks. Unusual constructs, such as headings inside HTML blocks, can confuse it. Use
-  `--no-shift` when in doubt.
+- **Heading detection is a heuristic.** It counts `#` and `===` headings outside fenced code blocks.
+  Unusual constructs, such as headings inside HTML blocks, can confuse it. Use `--no-shift` when in
+  doubt.
 - **Own reference document without page options.** The page setup is then unknown to `mdrender`.
   Diagrams keep their natural size, and can be too wide in ODT.
 - **ODT links start with `../`.** ODT stores relative links relative to the document package.
   LibreOffice resolves them correctly.
-- **No DOCX, ODT or PDF on a terminal.** `mdrender` refuses to write binary output to a terminal.
-  Use `--output`, `--temp` or `--open`, or redirect stdout.
-- **PDF hyphenation is English by default.** Typst and LaTeX hyphenate by the document language.
-  Set it with `--lang` or a shortcut such as `--nl`, or in the document, see [Language](#language).
+- **No DOCX, ODT, or PDF on a terminal.** `mdrender` refuses to write binary output to a terminal.
+  Use `--output`, `--temp`, or `--open`, or redirect stdout.
+- **PDF hyphenation is English by default.** Typst and LaTeX hyphenate by the document language. Set
+  it with `--lang` or a shortcut such as `--nl`, or in the document, see [Language](#language).
 - **Own ODT reference document without page options.** It needs a paragraph style `Pagebreak` for
   page breaks, see [Directives](#directives).
-- **LaTeX doesn't wrap code blocks.** A line in a fenced code block that is wider than the page
-  runs off it. `code-breaks.lua` only handles inline code.
+- **LaTeX doesn't wrap code blocks.** A line in a fenced code block that is wider than the page runs
+  off it. `code-breaks.lua` only handles inline code.
 - **A very wide table can still overlap with LaTeX.** When a table's longest words don't fit the
-  line even in `\footnotesize`, its columns overlap, see [Table column widths](#table-column-widths).
-  Shorten or split the table, or use landscape.
+  line even in `\footnotesize`, its columns overlap, see
+  [Table column widths](#table-column-widths). Shorten or split the table, or use landscape.
 - **`mmdc` errors are verbose.** When a diagram is invalid, `mmdc` prints a stack trace to stderr.
 
 ## Alternatives
 
 [pandoc-ext/diagram](https://github.com/pandoc-ext/diagram) supports more diagram types written as
-code blocks: PlantUML, D2, TikZ and others. It does not size PNG diagrams for DOCX/ODT, though. It
+code blocks: PlantUML, D2, TikZ, and others. It does not size PNG diagrams for DOCX/ODT, though. It
 also renders Mermaid PNGs at normal resolution only, its cache is off by default, and it has no
 draw.io support. `diagram.lua` exists for those reasons.
 

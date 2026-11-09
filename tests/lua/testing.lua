@@ -1,8 +1,8 @@
 --[[
 testing.lua — a minimal test helper for the filter tests, run with pandoc lua.
 
-A test file loads it, declares its tests with test(), and ends with done(),
-which exits with status 1 when a test failed:
+A test file loads it, declares its tests with test(), and ends with done(), which exits with status
+1 when a test failed:
 
   local t = require("testing")
   t.test("does something", function()
@@ -10,8 +10,8 @@ which exits with status 1 when a test failed:
   end)
   t.done()
 
-Each test prints "ok" or "not ok" with its name, as in TAP. A failing check
-stops its test and prints what it expected and what it got.
+Each test prints "ok" or "not ok" with its name, as in TAP. A failing check stops its test and
+prints what it expected and what it got.
 ]]
 
 local M = {}
@@ -19,8 +19,8 @@ local M = {}
 --- Number of tests run, and number of tests failed.
 local run, failed = 0, 0
 
---- Path of the repository's lua-filter folder, found from the test file that
---- pandoc lua runs (arg[0]), which is in tests/lua.
+--- Path of the repository's lua-filter folder, found from the test file that pandoc lua runs
+--- (arg[0]), which is in tests/lua.
 M.filter_dir = pandoc.path.join({
   pandoc.path.directory(pandoc.path.directory(pandoc.path.directory(arg[0]))),
   "lua-filter",
@@ -51,15 +51,15 @@ function M.read(markdown)
   return pandoc.read(markdown, "markdown+gfm_auto_identifiers")
 end
 
---- Returns the document with the named filter from lua-filter applied, as
---- pandoc runs it for the given output format (html when left out).
+--- Returns the document with the named filter from lua-filter applied, as pandoc runs it for the
+--- given output format (html when left out).
 function M.apply(filter, doc, format)
   local env = setmetatable({ FORMAT = format or "html" }, { __index = _G })
   return pandoc.utils.run_lua_filter(doc, pandoc.path.join({ M.filter_dir, filter }), env)
 end
 
---- Returns a short description of each block, such as "Header 1 Title" or
---- "RawBlock html <!-- x -->", to compare block lists in one check.
+--- Returns a short description of each block, such as "Header 1 Title" or "RawBlock html <!-- x
+--- -->", to compare block lists in one check.
 function M.blocks(doc)
   local descriptions = {}
   for _, block in ipairs(doc.blocks) do
