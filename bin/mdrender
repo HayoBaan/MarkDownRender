@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# mdrender — render Markdown to HTML, DOCX, ODT or PDF, including diagrams
+# mdrender — render Markdown to HTML, DOCX, ODT, or PDF, including diagrams
 #
 # Usage:
 #   mdrender --help|-h
@@ -42,11 +42,9 @@
 #   --reference-doc FILE  Style template for docx/odt, and for pdf with the
 #                         libreoffice engine (fonts, styles, page setup).
 #
-# Without files, or with "-", input is read from stdin and written to stdout,
-# or with --temp or --open to a temporary file named stdin.FORMAT.
-# Short options can be combined (-tp is -t -p), and take an attached
-# argument (-fodt is -f odt).
-# Anything after "--" is passed to pandoc unchanged.
+# Without files, or with "-", input is read from stdin and written to stdout, or with --temp or
+# --open to a temporary file named stdin.FORMAT. Short options can be combined (-tp is -t -p), and
+# take an attached argument (-fodt is -f odt). Anything after "--" is passed to pandoc unchanged.
 #
 # Directives in the document, each an HTML comment on a line of its own:
 #   <!-- lang: nl -->     Document language, unless --lang or YAML sets one.
@@ -62,13 +60,13 @@
 #   cat notes.md | mdrender > notes.html
 #   cat notes.md | mdrender --open
 #
-# How it works, and how to install it: README.md in the MarkDownRender
-# repository, https://github.com/HayoBaan/MarkDownRender
+# How it works, and how to install it: README.md in the MarkDownRender repository,
+# https://github.com/HayoBaan/MarkDownRender
 
 set -euo pipefail
 
 readonly PROGRAM="$(basename "$0")"
-readonly VERSION="0.004"
+readonly VERSION="0.005"
 
 # Prints the header comment of this script as its help
 help() {
@@ -96,8 +94,8 @@ find_filter() {
   echo "${path}"
 }
 
-# Prints the number of level-1 headings outside fenced code blocks.
-# Counts ATX headings ("# Title") and setext headings ("Title" over "=====").
+# Prints the number of level-1 headings outside fenced code blocks. Counts ATX headings ("# Title")
+# and setext headings ("Title" over "=====").
 count_h1() {
   awk '
     /^[[:space:]]*(```|~~~)/ { fence = !fence; previous = ""; next }
@@ -235,9 +233,8 @@ if [[ "${output}" == "-" && "${open_output}" == "true" ]]; then
   die "--open needs an output file, not stdout"
 fi
 
-# Prints the command that opens a file in its default application, or exits
-# when there is none. Linux uses xdg-open, because some distributions have an
-# unrelated command named open.
+# Prints the command that opens a file in its default application, or exits when there is none.
+# Linux uses xdg-open, because some distributions have an unrelated command named open.
 open_command() {
   case "$(uname -s)" in
     Darwin) echo "open" ;;
@@ -358,8 +355,8 @@ with zipfile.ZipFile(base) as source, zipfile.ZipFile(out, "w") as target:
 PYTHON
 }
 
-# Prints pandoc options that limit diagrams to the text area of the current
-# paper, orientation and margin. The height leaves 20mm for a caption.
+# Prints pandoc options that limit diagrams to the text area of the current paper, orientation, and
+# margin. The height leaves 20mm for a caption.
 diagram_size_options() {
   python3 - "${paper}" "${landscape}" "${page_margin}" <<'PYTHON'
 import re
@@ -414,11 +411,10 @@ reference_doc_for() {
 }
 
 # Writes the CSS for the HTML theme, and prints its path.
-#   - Pandoc's template picks its colors with light-dark(), so the color-scheme
-#     property selects the theme. Without it, the template follows the system.
-#     The template itself keeps printing light.
-#   - Diagrams are drawn for a light background. They get a light panel, which
-#     is only visible on a dark page.
+#   - Pandoc's template picks its colors with light-dark(), so the color-scheme property selects the
+#     theme. Without it, the template follows the system. The template itself keeps printing light.
+#   - Diagrams are drawn for a light background. They get a light panel, which is only visible on a
+#     dark page.
 theme_css() {
   local file="${tmp_dir}/theme.html"
   local scheme=""
@@ -441,10 +437,10 @@ CSS
 
 # Writes the CSS for WeasyPrint, and prints its path:
 #   - The page setup, as an @page rule.
-#   - Task list checkboxes on the line of their item. WeasyPrint's own style
-#     sheet makes a checkbox a block with padding, so it sits on a line of its
-#     own, larger than pandoc's style intends. In a bulleted task list, pandoc's
-#     own rule is more specific and places the checkbox where the bullet is.
+#   - Task list checkboxes on the line of their item. WeasyPrint's own style sheet makes a checkbox
+#     a block with padding, so it sits on a line of its own, larger than pandoc's style intends. In
+#     a bulleted task list, pandoc's own rule is more specific and places the checkbox where the
+#     bullet is.
 page_css() {
   local file="${tmp_dir}/page.html"
   local size="${paper}"
@@ -469,8 +465,8 @@ CSS
   echo "${file}"
 }
 
-# Writes the page setup for pandoc's Typst template as metadata, and prints its path.
-# The template takes the margin as a map, which only a metadata file can set.
+# Writes the page setup for pandoc's Typst template as metadata, and prints its path. The template
+# takes the margin as a map, which only a metadata file can set.
 typst_page_metadata() {
   local file="${tmp_dir}/typst-page.yaml"
   local size="${paper}"
@@ -485,9 +481,8 @@ typst_page_metadata() {
 #   - Pandoc centers each table, and its cells inherit that. Cells start left.
 #   - Pandoc's template justifies all text. In narrow cells that leaves gaps.
 #   - The header row is bold, as in the other output formats.
-#   - Pandoc wraps a table in a figure, which Typst keeps on one page. A
-#     breakable figure lets a long table continue on the next page, and its
-#     header row is repeated there.
+#   - Pandoc wraps a table in a figure, which Typst keeps on one page. A breakable figure lets a
+#     long table continue on the next page, and its header row is repeated there.
 typst_table_rules() {
   local file="${tmp_dir}/tables.typ"
   cat > "${file}" <<'TYPST'
@@ -499,15 +494,14 @@ TYPST
   echo "${file}"
 }
 
-# Writes Typst rules for task list checkboxes, and prints their path.
-# Pandoc writes a task list item as a bullet item that starts with ☐ or ☒.
-#   - Typst's default font has neither glyph, so the fallback font picks them,
-#     and on macOS ☐ becomes a box with a question mark. The rules show the
-#     math symbols □ and ⊠ instead, as pandoc does for LaTeX. Typst's math font
-#     always has them.
-#   - In a list of only task items, the checkbox replaces the bullet, as in
-#     the HTML. Typst gives all items of a list the same marker, so such a
-#     list becomes an enum whose numbering returns each item's checkbox.
+# Writes Typst rules for task list checkboxes, and prints their path. Pandoc writes a task list item
+# as a bullet item that starts with ☐ or ☒.
+#   - Typst's default font has neither glyph, so the fallback font picks them, and on macOS ☐
+#     becomes a box with a question mark. The rules show the math symbols □ and ⊠ instead, as pandoc
+#     does for LaTeX. Typst's math font always has them.
+#   - In a list of only task items, the checkbox replaces the bullet, as in the HTML. Typst gives
+#     all items of a list the same marker, so such a list becomes an enum whose numbering returns
+#     each item's checkbox.
 typst_task_list_rules() {
   local file="${tmp_dir}/task-lists.typ"
   cat > "${file}" <<'TYPST'
@@ -557,23 +551,20 @@ TYPST
   echo "${file}"
 }
 
-# Writes LaTeX line breaking settings, and prints their path.
-# LaTeX prefers a line that runs past the margin over a loose line. A long
-# inline code name, which it cannot hyphenate, then runs off the page.
-# \sloppy accepts the loose line instead.
+# Writes LaTeX line breaking settings, and prints their path. LaTeX prefers a line that runs past
+# the margin over a loose line. A long inline code name, which it cannot hyphenate, then runs off
+# the page. \sloppy accepts the loose line instead.
 latex_line_rules() {
   local file="${tmp_dir}/lines.tex"
   echo '\sloppy' > "${file}"
   echo "${file}"
 }
 
-# Writes the LaTeX code font as metadata, and prints its path, or fails when the
-# LaTeX in use has no DejaVu Sans Mono.
-# LaTeX's default code font, Latin Modern Mono, has no box-drawing characters
-# such as ├── and │, and LaTeX has no font fallback, so they are left out.
-# DejaVu Sans Mono has them. Tectonic downloads it, and a full TeX Live
-# includes it, but BasicTeX does not. pdflatex cannot use it at all.
-# A metadata file lets a monofont in the document's own metadata win.
+# Writes the LaTeX code font as metadata, and prints its path, or fails when the LaTeX in use has no
+# DejaVu Sans Mono. LaTeX's default code font, Latin Modern Mono, has no box-drawing characters such
+# as ├── and │, and LaTeX has no font fallback, so they are left out. DejaVu Sans Mono has them.
+# Tectonic downloads it, and a full TeX Live includes it, but BasicTeX does not. pdflatex cannot use
+# it at all. A metadata file lets a monofont in the document's own metadata win.
 latex_font_metadata() {
   local program
   program="$(basename "$(pdf_program latex)")"
@@ -620,8 +611,8 @@ render() {
   fi
 
   if [[ "${format}" == "pdf" ]]; then
-    # Most PDF viewers refuse to open another file from a link, so links to
-    # other local files become plain text. Web links and internal links stay.
+    # Most PDF viewers refuse to open another file from a link, so links to other local files become
+    # plain text. Web links and internal links stay.
     args+=(--lua-filter "${links_filter}" --metadata "md-link-unlink=true")
   elif [[ "${link_ext}" == "true" ]]; then
     args+=(--lua-filter "${links_filter}" --metadata "md-link-ext=${format}")
@@ -645,8 +636,8 @@ render() {
           --include-in-header "$(theme_css)"
         )
       else
-        # WeasyPrint: the page setup comes from CSS, so the body needs no
-        # width limit or padding of its own.
+        # WeasyPrint: the page setup comes from CSS, so the body needs no width limit or padding of
+        # its own.
         args+=(
           --variable "maxwidth=none"
           --variable "margin-left=0"
@@ -667,15 +658,15 @@ render() {
       ;;
     docx | odt)
       args+=(--reference-doc "$(reference_doc_for "${writer}")")
-      # Keeps diagrams within the text area. With an unmodified own reference
-      # document the page setup is unknown, so diagrams keep their natural size.
+      # Keeps diagrams within the text area. With an unmodified own reference document the page
+      # setup is unknown, so diagrams keep their natural size.
       if [[ -z "${reference_doc}" || "${page_explicit}" == "true" ]]; then
         args+=("${diagram_size[@]}")
       fi
       ;;
     typst)
-      # Typst reads a path that starts with / relative to its root folder, which
-      # is the current folder by default. Pandoc refers to images by absolute path.
+      # Typst reads a path that starts with / relative to its root folder, which is the current
+      # folder by default. Pandoc refers to images by absolute path.
       args+=(
         --metadata-file "$(typst_page_metadata)"
         "${diagram_size[@]}"
@@ -684,9 +675,8 @@ render() {
         --variable 'linkcolor=\#1a5fb4'
         --include-in-header "$(typst_table_rules)"
         --include-in-header "$(typst_task_list_rules)"
-        # Pandoc gives a wide pipe table relative column widths, taken from the
-        # lengths of its dash lines. A wide line limit leaves the widths to Typst,
-        # which fits them to the content.
+        # Pandoc gives a wide pipe table relative column widths, taken from the lengths of its dash
+        # lines. A wide line limit leaves the widths to Typst, which fits them to the content.
         --columns=10000
       )
       # Pandoc's Typst template has no variable for the orientation.
@@ -711,8 +701,8 @@ render() {
       if font_metadata="$(latex_font_metadata)"; then
         args+=(--metadata-file "${font_metadata}")
       fi
-      # Widens table columns that are too narrow for their longest word. It
-      # runs after the code breaks filter, whose break opportunities it counts.
+      # Widens table columns that are too narrow for their longest word. It runs after the code
+      # breaks filter, whose break opportunities it counts.
       local option
       for option in "${diagram_size[@]}"; do
         if [[ "${option}" == diagram-max-width=* ]]; then
@@ -734,15 +724,15 @@ render() {
     return
   fi
 
-  # Pandoc only creates a PDF for an output file named *.pdf, and LibreOffice
-  # always writes to a folder. Both write to a temporary file first.
+  # Pandoc only creates a PDF for an output file named *.pdf, and LibreOffice always writes to a
+  # folder. Both write to a temporary file first.
   local pdf="${tmp_dir}/output/${name}.pdf"
   mkdir -p "${tmp_dir}/output"
   if [[ "${pdf_engine}" == "libreoffice" ]]; then
     local odt="${tmp_dir}/output/${name}.odt"
     pandoc "${args[@]}" ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${odt}"
-    # A private user profile lets the conversion run while LibreOffice is open.
-    # Its messages, such as font configuration warnings, are only shown on failure.
+    # A private user profile lets the conversion run while LibreOffice is open. Its messages, such
+    # as font configuration warnings, are only shown on failure.
     if ! "$(pdf_program libreoffice)" -env:UserInstallation="file://${tmp_dir}/libreoffice" \
       --headless --convert-to pdf --outdir "${tmp_dir}/output" "${odt}" \
       >"${tmp_dir}/libreoffice.log" 2>&1 || [[ ! -f "${pdf}" ]]; then
@@ -750,8 +740,8 @@ render() {
       die "${name}: LibreOffice could not convert the document to PDF"
     fi
   else
-    # Tectonic warns about every image that pandoc refers to by absolute path.
-    # That is harmless here, so those warnings are left out. Other messages remain.
+    # Tectonic warns about every image that pandoc refers to by absolute path. That is harmless
+    # here, so those warnings are left out. Other messages remain.
     pandoc "${args[@]}" --pdf-engine "$(pdf_program "${pdf_engine}")" \
       ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${pdf}" \
       2> >(grep -v '^warning: accessing absolute path .*build may not be reproducible' >&2)
@@ -763,8 +753,8 @@ render() {
   fi
 }
 
-# The folder for --temp output. It is created on first use, and kept after
-# mdrender exits, so the files can still be opened.
+# The folder for --temp output. It is created on first use, and kept after mdrender exits, so the
+# files can still be opened.
 temp_output_dir=""
 
 for input in "${inputs[@]}"; do

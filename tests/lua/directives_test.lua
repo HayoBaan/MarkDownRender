@@ -2,13 +2,12 @@
 directives_test.lua — tests of directives.lua.
 
 Covered:
-  - lang directive: sets the document language and disappears; the first one
-    counts; YAML metadata wins over it.
-  - page break: the newpage directive and a \newpage line, as the raw code of
-    each writer, and nothing for a writer without page breaks.
-  - other comments: left alone, except that comments before the first level-1
-    heading move to just after it, in their order. Not when other text, or a
-    lower-level heading, comes first.
+  - lang directive: sets the document language and disappears; the first one counts; YAML metadata
+    wins over it.
+  - page break: the newpage directive and a \newpage line, as the raw code of each writer, and
+    nothing for a writer without page breaks.
+  - other comments: left alone, except that comments before the first level-1 heading move to just
+    after it, in their order. Not when other text, or a lower-level heading, comes first.
 
 Usage:
   pandoc lua tests/lua/directives_test.lua

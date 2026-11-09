@@ -12,22 +12,20 @@
 #   --target|-t DIR  Target root for $TARGET (default: your home directory).
 #   --dry-run|-n     Show what would be done, without changing anything.
 
-# Each line of install.manifest holds a source in this repository and a
-# destination directory. This script only copies or links the files.
+# Each line of install.manifest holds a source in this repository and a destination directory. This
+# script only copies or links the files.
 #
 # Sources and destinations follow these rules:
 #   - A directory with a trailing slash installs its contents.
 #   - A directory without one installs the directory itself.
 #   - A glob pattern installs the files it matches.
-#   - A destination may use ~, $TARGET (the target root) and environment
-#     variables, also as ${NAME:-default}. The default is used as written,
-#     except for a leading ~.
+#   - A destination may use ~, $TARGET (the target root), and environment variables, also
+#     as ${NAME:-default}. The default is used as written, except for a leading ~.
 #
-# By default the files are copied. With --symlink they are linked instead,
-# so later changes in this repository take effect without reinstalling.
-# Running it again switches between the two: a link to this repository and
-# an identical copy replace each other freely. Any other existing file is
-# only replaced with --force.
+# By default the files are copied. With --symlink they are linked instead, so later changes in this
+# repository take effect without reinstalling. Running it again switches between the two: a link to
+# this repository and an identical copy replace each other freely. Any other existing file is only
+# replaced with --force.
 #
 # All manifest lines and sources are checked before anything is installed.
 
@@ -77,8 +75,8 @@ target_root="$(cd "${target_root}" && pwd)"
 cd "${REPO_DIR}"
 [[ -f "${MANIFEST}" ]] || die "${MANIFEST} not found in ${REPO_DIR}"
 
-# The planned installs: the source file, relative to this repository, and
-# the installed path, at the same index.
+# The planned installs: the source file, relative to this repository, and the installed path, at the
+# same index.
 plan_sources=()
 plan_targets=()
 errors=0
@@ -89,9 +87,9 @@ manifest_error() {
   errors=1
 }
 
-# Prints a manifest destination with ~, $TARGET and environment variables
-# expanded. ${NAME:-default} uses the default when NAME is unset or empty.
-# Commands are not expanded. Fails when a variable without a default is unset.
+# Prints a manifest destination with ~, $TARGET, and environment variables
+# expanded. ${NAME:-default} uses the default when NAME is unset or empty. Commands are not
+# expanded. Fails when a variable without a default is unset.
 expand_destination() {
   local rest="$1" result="" name value
   local pattern='^([^$]*)\$(\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}|([A-Za-z_][A-Za-z0-9_]*))(.*)$'
@@ -217,8 +215,8 @@ for index in "${!plan_sources[@]}"; do
     echo "${name}: already up to date"
     continue
   fi
-  # A link to this repository and an identical copy can safely replace each
-  # other, anything else needs --force.
+  # A link to this repository and an identical copy can safely replace each other, anything else
+  # needs --force.
   if [[ -e "${target}" || -L "${target}" ]] \
     && [[ "${identical}" == "false" && "${linked}" == "false" && "${force}" == "false" ]]; then
     echo "${name}: ${target} exists and differs, skipped (use --force to replace it)" >&2
