@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# run — run the tests of MarkDownRender: the filter tests and the mdrender tests
+# run — run the tests of MarkDownRender: the filter tests, the macro tests, and the mdrender tests
 #
 # Usage:
 #   run --help|-h
@@ -9,13 +9,14 @@
 # Options:
 #   --help|-h  Show this help.
 #
-# It lives in the tests folder, so from the repository root it is tests/run. The filter tests
-# (tests/lua/*_test.lua) run with pandoc lua. The mdrender tests (tests/*.bats) run with Bats,
-# against the filters in this repository.
+# It lives in the tests folder, so from the repository root it is tests/run. The tests:
+#   - the filter tests (tests/lua/*_test.lua), with pandoc lua;
+#   - the tests of the LibreOffice macro (tests/python), with python3 and without LibreOffice;
+#   - the mdrender tests (tests/*.bats), with Bats, against the files in this repository.
 #
 # Exit status: 0 when all tests passed, 1 when a test failed, and 77 when tests were skipped because
-# pandoc or bats is not installed. The tests that could run did run, and none of them failed. 77 is
-# the status that automake reads as "skipped".
+# pandoc, python3, or bats is not installed. The tests that could run did run, and none of them
+# failed. 77 is the status that automake reads as "skipped".
 
 set -uo pipefail
 
@@ -55,6 +56,13 @@ else
     echo "# ${test_file#"${tests_dir}/"}"
     pandoc lua "${test_file}" || failed="true"
   done
+fi
+
+if ! command -v python3 >/dev/null; then
+  missing+=("python3")
+else
+  echo "# python/test_toc_update.py"
+  python3 -m unittest discover -s "${tests_dir}/python" 2>&1 || failed="true"
 fi
 
 if ! command -v bats >/dev/null; then

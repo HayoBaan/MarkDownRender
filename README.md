@@ -2,7 +2,7 @@
 
 Render Markdown to HTML, DOCX, ODT, or PDF in one command, diagrams included.
 
-`mdrender` is a small wrapper around [pandoc](https://pandoc.org). It adds five Lua filters and
+`mdrender` is a small wrapper around [pandoc](https://pandoc.org). It adds six Lua filters and
 sensible defaults:
 
 - Diagrams become images: Mermaid and Graphviz code blocks, and draw.io files. HTML gets SVG, DOCX,
@@ -10,12 +10,18 @@ sensible defaults:
 - Links to other Markdown files can be rewritten to the output format, e.g. `other.md` becomes
   `other.html`.
 - Directives in the document, as invisible HTML comments: the document language, and page breaks.
+- A table of contents where the document says `[[_TOC_]]` or `[TOC]`, as in GitLab. A list between
+  two `<!-- TOC -->` lines, as IntelliJ IDEA writes it, is brought up to date in the output. DOCX,
+  ODT, and PDF get a real table of contents, with page numbers.
 - Long inline code, such as a path or `Class.method`, can break across lines in PDF. It stays within
   its table column and on the page.
-- With LaTeX, a table column that is too narrow for its longest word gets wider.
+- With LaTeX, a table column that is too narrow for its longest word gets wider. In DOCX and ODT,
+  table columns get their widths from their content.
 - HTML fills the window, with a small margin. It is light by default, or dark, or follows the
   system.
 - DOCX, ODT, and PDF use A4 portrait with 2 cm margins, instead of pandoc's US Letter.
+- DOCX and ODT look like the PDF: a serif font, black and bold headings, centered tables, and a line
+  under a table's header row.
 - PDF uses the best PDF engine that is installed: Typst, LaTeX, WeasyPrint, or LibreOffice.
 - A single level-1 heading becomes the document title.
 
@@ -33,11 +39,15 @@ MarkDownRender/
 │   ├── diagram.lua       turns Mermaid, Graphviz and draw.io diagrams into images
 │   ├── directives.lua    handles directives (document language, page breaks), keeps the title first
 │   ├── md-links.lua      rewrites links to .md files
-│   └── table-widths.lua  widens LaTeX table columns to fit their longest word
+│   ├── table-widths.lua  fits table columns to their content for LaTeX, DOCX, and ODT
+│   └── toc.lua           makes a table of contents for [[_TOC_]], [TOC], and <!-- TOC --> lists
+├── libreoffice/
+│   └── toc_update.py     LibreOffice macro that fills in the DOCX and ODT table of contents
 ├── install.manifest      what to install, and where
 ├── install.sh            installs the files listed in install.manifest
 ├── tests/
 │   ├── lua/              tests of the filters, run with pandoc lua
+│   ├── python/           tests of toc_update.py, run with python3
 │   ├── mdrender.bats     tests of mdrender, run with Bats
 │   └── run               runs all tests
 ├── LICENSE               the MIT License
@@ -54,6 +64,8 @@ MarkDownRender/
   - [draw.io desktop](https://www.drawio.com) (`drawio`): `brew install --cask drawio`.
 - `python3`, for the DOCX/ODT page setup.
 - For PDF: one of the PDF engines, see [PDF engines](#pdf-engines).
+- For a filled-in table of contents in DOCX and ODT: [LibreOffice](https://www.libreoffice.org)
+  (`soffice`): `brew install --cask libreoffice`. See [Table of contents](#table-of-contents).
 
 ## Installation
 
@@ -63,11 +75,13 @@ MarkDownRender/
 # source          destination
 bin/              $TARGET/bin/
 lua-filter/*.lua  ${XDG_DATA_HOME:-~/.local/share}/pandoc/filters/
+libreoffice/*.py  ${XDG_DATA_HOME:-~/.local/share}/pandoc/mdrender/
 ```
 
 - `mdrender` goes to `bin` in the target root, your home directory by default. That folder must be
   on your `PATH`.
 - The Lua filters go to pandoc's filters folder.
+- The LibreOffice macro goes to the `mdrender` folder in pandoc's user data directory.
 
 Install with:
 
@@ -82,7 +96,8 @@ for another target root, and `--dry-run` to only see what would happen. Run `./i
 for all options.
 
 The filters folder in the manifest assumes pandoc's default user data directory. Check yours with
-`pandoc --version`. If it is another folder, such as `~/.pandoc`, install the filters there by hand.
+`pandoc --version`. If it is another folder, such as `~/.pandoc`, install the filters and the macro
+there by hand.
 
 ## Usage
 
@@ -172,6 +187,9 @@ With zero or several level-1 headings, `mdrender` does not shift. Pandoc would o
 extra level-1 headings into plain paragraphs. In that case `mdrender` prints a warning. Headings
 inside fenced code blocks are not counted. Use `--no-shift` to never shift.
 
+When the YAML metadata sets a `title`, that is the title, and the headings keep their levels. A
+level-1 heading then stays a level-1 heading, without a warning.
+
 Without a title, the HTML page title is the file name.
 
 ### HTML layout
@@ -205,6 +223,24 @@ size per run.
 
 With `--reference-doc`, that document is used as is. Page options given together with it are applied
 on top of it.
+
+With pandoc's built-in default, `mdrender` also sets the styles, so that DOCX and ODT look like the
+PDF:
+
+- **Font:** a serif font for body text and headings.
+  - DOCX: Cambria, which comes with Word. LibreOffice shows it as Caladea, which has the same
+    character widths. So a DOCX wraps the same way in both. LibreOffice's font box does list Cambria
+    as missing.
+  - ODT: Caladea, which comes with LibreOffice.
+- **Headings:** black and bold. The title is 18 pt, level 1 17 pt, level 2 14 pt, and deeper levels
+  12 pt, the size of the text.
+- **Tables:** centered. LibreOffice doesn't center the tables of a DOCX, Word does.
+- **Word:** opens a DOCX as a current document, not in compatibility mode.
+
+Your own reference document keeps its own fonts and styles.
+
+Every ODT table also gets a line under its header row, as in DOCX and PDF. That also holds with your
+own reference document.
 
 ### PDF engines
 
@@ -345,6 +381,75 @@ Twee pagina's samenvatting.
 ## Meer lezen
 ```
 
+### Table of contents
+
+`toc.lua` turns a paragraph that is only `[[_TOC_]]` or `[TOC]` into a table of contents. GitLab
+uses the same markers, so the document looks the same there. Letter case doesn't matter. A marker
+inside a sentence, a list, or a code block stays as it is.
+
+The table of contents lists the headings at every level. A heading with the class `unlisted`
+(`## Notes {.unlisted}`) is left out, except in DOCX and ODT. In a document without headings, the
+marker just disappears.
+
+The document title isn't in the list. When `mdrender` makes a sole level-1 heading the title, that
+heading has no anchor to link to. With `--no-shift`, or with several level-1 headings, every heading
+is listed.
+
+Each output format gets its own kind of table of contents. In all of them, the entries link to the
+headings. Formats with pages show page numbers:
+
+| Output               | Table of contents                                                |
+| -------------------- | ---------------------------------------------------------------- |
+| HTML                 | a nested list of links                                           |
+| PDF with Typst       | Typst's `#outline()`, with dot leaders and page numbers          |
+| PDF with LaTeX       | the list of `\tableofcontents`, without its "Contents" heading   |
+| PDF with WeasyPrint  | the list of links, with dot leaders and page numbers from CSS    |
+| PDF with LibreOffice | LibreOffice's table of contents, filled in during the conversion |
+| DOCX                 | a Word table of contents field, filled in by LibreOffice         |
+| ODT                  | a LibreOffice table of contents, filled in by LibreOffice        |
+
+#### DOCX and ODT
+
+Only a word processor can work out the page numbers of a DOCX or ODT. `mdrender` fills in the table
+of contents with LibreOffice, when it's installed:
+
+1. `toc_update.py`, a LibreOffice macro, opens the document and updates its tables of contents.
+2. It copies only the filled-in tables of contents back into the document. The rest of the document
+   stays exactly as it was, styles included.
+
+In DOCX, the entries have the TOC styles of Word itself: 5 pt after each entry, and more indent per
+level. A reference document with its own TOC styles keeps those.
+
+After an update, Word ends the table of contents with an empty paragraph, which holds the end of the
+field. A table of contents that Word inserts itself has it too.
+
+LibreOffice runs headless, with a private profile, so it can run while LibreOffice is open. It adds
+a few seconds, and only for a document with a table of contents.
+
+Word works out its own page layout, which can differ a little from LibreOffice's. So the DOCX field
+stays marked for updating: Word offers to update the fields when it opens the document. Then it uses
+its own page numbers.
+
+Without LibreOffice, the table of contents stays empty, and `mdrender` prints a warning. Word still
+fills in the DOCX field when it updates the fields. In LibreOffice, update an ODT with **Tools →
+Update → Update All**.
+
+A table of contents can also be a list between two `<!-- TOC -->` lines. IntelliJ IDEA writes it
+that way, and other tools can keep it up to date in the file. GitHub shows such a list too, since
+it's ordinary Markdown. GitHub doesn't know the `[[_TOC_]]` and `[TOC]` markers.
+
+`toc.lua` replaces that list with a fresh one in the output. An outdated list can then never end up
+in the output, nor a link to a missing heading. The file itself stays as it is. When the list was
+out of date, `toc.lua` prints a warning:
+
+```text
+[toc.lua] WARNING: advice.md: the table of contents between the <!-- TOC --> lines is out of date, the output uses an updated one
+```
+
+Only the entries count: their level, their text, and their link. A different bullet, indentation, or
+other whitespace gives no warning. A single `<!-- TOC -->` line, without a second one, is left
+alone.
+
 ### Content for one output format
 
 Pandoc can pass content unchanged to one output format, with a *raw block*. The block is marked with
@@ -475,15 +580,33 @@ that runs past the margin. HTML output gets the same `<wbr>` in tables as WeasyP
 
 ### Table column widths
 
-For a pipe table with a line wider than 72 characters, pandoc sets each column's width from the
-length of its dash line. LaTeX keeps those widths. A narrow column can then be too narrow for a word
-in it, which runs into the next column. Typst, WeasyPrint, and LibreOffice size the columns
-themselves.
+`table-widths.lua` fits the columns of a table to their content, for DOCX, ODT, and LaTeX. Typst and
+WeasyPrint do that themselves.
 
-So with LaTeX, `table-widths.lua` estimates the width of the longest word in each column. A word can
-break at a space, after a hyphen, and where `code-breaks.lua` allows it. A hyphen between digits, as
-in a date, counts as part of the word. A column that is too narrow gets wider. The extra width comes
-from the columns with room to spare.
+#### DOCX and ODT
+
+Each column gets its width from its content:
+
+- When all cells fit on one line, each column gets the width of its longest cell. The table is then
+  narrower than the page.
+- Otherwise each column gets at least the width of its longest word, so a word doesn't break. The
+  room that is left goes to the columns with longer cells.
+- When even the longest words don't fit, `mdrender` prints a warning that names the table by its
+  header row. Word and LibreOffice then break words.
+
+This also covers PDF with LibreOffice. A table with its own column widths, such as a grid table,
+keeps them. The estimate assumes 12 pt text.
+
+#### LaTeX
+
+For a pipe table with a line wider than 72 characters, pandoc sets each column's width from the
+length of its dash line. A narrow column can then be too narrow for a word in it, which runs into
+the next column.
+
+So `table-widths.lua` estimates the width of the longest word in each column. A word can break at a
+space, after a hyphen, and where `code-breaks.lua` allows it. A hyphen between digits, as in a date,
+counts as part of the word. A column that is too narrow gets wider. The extra width comes from the
+columns with room to spare.
 
 When the longest words don't fit the line together, the table gets a smaller font: first `\small`,
 then `\footnotesize`. When even that is too wide, `mdrender` prints a warning that names the table
@@ -500,8 +623,11 @@ Pandoc finds the installed filters by name:
 pandoc -s --embed-resources -L diagram.lua input.md -o output.html
 pandoc -L md-links.lua -M md-link-ext=html input.md -o output.html
 pandoc -L directives.lua input.md -o output.pdf
+pandoc -L toc.lua -M toc-skip-title=true --shift-heading-level-by=-1 input.md -o output.pdf
+pandoc -L toc.lua input.md -o output.docx
 pandoc -L code-breaks.lua input.md -o output.pdf
 pandoc -L code-breaks.lua -L table-widths.lua -M table-text-width=170mm input.md -o output.pdf
+pandoc --columns=10000 -L table-widths.lua -M table-text-width=170mm input.md -o output.docx
 ```
 
 Settings:
@@ -513,7 +639,8 @@ Settings:
 | metadata `diagram-max-width`    | `diagram.lua`      | Maximum PNG width, e.g. `170mm`                |
 | metadata `diagram-max-height`   | `diagram.lua`      | Maximum PNG height, e.g. `237mm`               |
 | metadata `diagram-format`       | `diagram.lua`      | Image type: `svg` or `png`                     |
-| metadata `table-text-width`     | `table-widths.lua` | Text width for LaTeX tables, e.g. `170mm`      |
+| metadata `table-text-width`     | `table-widths.lua` | Text width for tables, e.g. `170mm`            |
+| metadata `toc-skip-title`       | `toc.lua`          | `true`: leave level-1 headings out of the list |
 | environment `DIAGRAM_CACHE_DIR` | `diagram.lua`      | Cache location                                 |
 | environment `DIAGRAM_MMDC`      | `diagram.lua`      | `mmdc` executable                              |
 | environment `DIAGRAM_DOT`       | `diagram.lua`      | `dot` executable                               |
@@ -532,19 +659,24 @@ Use `"mdrender --link-ext"` to also rewrite links to other Markdown files.
 
 ## Tests
 
-`tests/run` runs all tests. They need pandoc, and [Bats](https://github.com/bats-core/bats-core) for
-the tests of `mdrender` (`brew install bats-core` on macOS). Installing `mdrender` doesn't need
-Bats.
+`tests/run` runs all tests. They need pandoc and `python3`, and
+[Bats](https://github.com/bats-core/bats-core) for the tests of `mdrender` (`brew install bats-core`
+on macOS). Installing `mdrender` doesn't need Bats.
 
 - The filter tests in `tests/lua` run each filter on small documents, with `pandoc lua`, and check
   the resulting document. A single file runs with `pandoc lua tests/lua/directives_test.lua`.
-- The tests in `tests/mdrender.bats` run `mdrender` itself, with HTML output: options, the title,
-  the language, and links. They install this repository with `install.sh --symlink` into a temporary
-  folder. That way they test the filters here, not the installed ones. Run them alone with
-  `bats tests`.
+- The tests in `tests/python` check how `toc_update.py` copies a table of contents into a DOCX or
+  ODT. They run without LibreOffice: `python3 -m unittest discover -s tests/python`.
+- The tests in `tests/mdrender.bats` run `mdrender` itself, mostly with HTML output: options, the
+  title, the language, the table of contents, and links. They install this repository with
+  `install.sh --symlink` into a temporary folder. That way they test the files here, not the
+  installed ones. Run them alone with `bats tests`.
+- The tests of a table of contents in DOCX, ODT, and PDF skip themselves when LibreOffice or a PDF
+  engine they need is missing.
 
-`tests/run` exits with status 0 when all tests pass, and 1 when a test fails. When pandoc or Bats is
-missing, it runs the tests it can and exits with status 77, which means "skipped".
+`tests/run` exits with status 0 when all tests pass, and 1 when a test fails. When pandoc,
+`python3`, or Bats is missing, it runs the tests it can and exits with status 77, which means
+"skipped".
 
 ## Known limitations
 
@@ -566,6 +698,10 @@ missing, it runs the tests it can and exits with status 77, which means "skipped
 - **A very wide table can still overlap with LaTeX.** When a table's longest words don't fit the
   line even in `\footnotesize`, its columns overlap, see
   [Table column widths](#table-column-widths). Shorten or split the table, or use landscape.
+- **An unlisted heading is listed in DOCX and ODT.** Word and LibreOffice build their table of
+  contents from the headings themselves. They can't leave out one heading.
+- **A DOCX or ODT table of contents needs LibreOffice.** Without it, the table of contents stays
+  empty until Word or LibreOffice updates it, see [Table of contents](#table-of-contents).
 - **`mmdc` errors are verbose.** When a diagram is invalid, `mmdc` prints a stack trace to stderr.
 
 ## Alternatives

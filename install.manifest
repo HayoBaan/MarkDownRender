@@ -3,3 +3,4 @@
 # source          destination
 bin/              $TARGET/bin/
 lua-filter/*.lua  ${XDG_DATA_HOME:-~/.local/share}/pandoc/filters/
+libreoffice/*.py  ${XDG_DATA_HOME:-~/.local/share}/pandoc/mdrender/

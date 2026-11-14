@@ -1,15 +1,28 @@
 --[[
-table-widths.lua — Pandoc Lua filter that widens LaTeX table columns to fit their longest word.
+table-widths.lua — Pandoc Lua filter that fits table columns to their content, for LaTeX, DOCX, and
+ODT.
 
-For a pipe table with a line wider than 72 characters, pandoc sets each column's width from the
-length of its dash line. LaTeX keeps those widths, so a narrow column can be too narrow for a word
-in it. That word then runs into the next column. This filter estimates the width of the longest word
-in each column. A column that is too narrow gets that width, taken from the columns with room to
-spare.
+LaTeX: for a pipe table with a line wider than 72 characters, pandoc sets each column's width from
+the length of its dash line. LaTeX keeps those widths, so a narrow column can be too narrow for a
+word in it. That word then runs into the next column. This filter estimates the width of the longest
+word in each column. A column that is too narrow gets that width, taken from the columns with room
+to spare.
 
 When the longest words of all columns together don't fit, the filter first sets the table in a
 smaller font: `\small`, then `\footnotesize`. When even that doesn't fit, it prints a warning. The
 column widths then follow the longest words, so any overlap is spread over all columns.
+
+DOCX and ODT: a table without column widths gets them from its content, as a browser or Typst lays
+out a table. Word and LibreOffice would otherwise give all columns the same width. A short column
+then breaks a word, while a long one has room to spare. For each column, the filter estimates two
+widths: its longest word, and its longest cell on one line. Then:
+  - When all columns fit on one line, each gets its line width. The table is then narrower than the
+    page.
+  - Otherwise each column gets its longest word, and the room that is left goes to the columns in
+    proportion to how much wider their lines are.
+  - When even the longest words don't fit, the columns follow the longest words, and the filter
+    prints a warning. Word and LibreOffice then break words.
+A table that already has column widths, such as a grid table, keeps them.
 
 The width of a word is estimated from its characters, since a filter cannot measure text. Inline
 code counts as monospace. A word may break at a space, after a hyphen, and at a LaTeX `\allowbreak`,
@@ -17,9 +30,12 @@ which `code-breaks.lua` adds. Run this filter after that one.
 
 It needs the text width as metadata, e.g. 170mm for A4 with 2cm margins:
   pandoc -L code-breaks.lua -L table-widths.lua -M table-text-width=170mm input.md -o output.pdf
+  pandoc --columns=10000 -L table-widths.lua -M table-text-width=170mm input.md -o output.docx
 
-The filter only changes LaTeX output, and only tables with relative column widths. Without
-`table-text-width` it does nothing.
+With `--columns=10000`, pandoc gives no pipe table column widths, so all of them are fitted. The
+font size comes from the metadata field fontsize. Without it, it is 10pt for LaTeX, and 12pt for
+DOCX and ODT, the size of pandoc's reference documents. Without `table-text-width`, or for another
+output format, the filter does nothing.
 ]]
 
 --- Estimated character widths in em for Latin Modern, LaTeX's default font.
@@ -28,8 +44,21 @@ local LOWER_EM = 0.5
 local OTHER_EM = 0.4
 local MONO_EM = 0.53
 
---- LaTeX's default space between columns, on each side of a column, in pt.
+--- Estimated width of a space in em.
+local SPACE_EM = 0.33
+
+--- LaTeX's default space between columns, on each side of a column, in pt. Word's and LibreOffice's
+--- cell padding is about the same.
 local TABCOLSEP_PT = 6
+
+--- The default font size in pt for each output format: LaTeX's, and that of pandoc's reference
+--- documents for DOCX and ODT.
+local DEFAULT_FONT_PT = { latex = 10, docx = 12, odt = 12 }
+
+--- How much wider the font is than Latin Modern, which the character widths are estimated for, per
+--- output format. mdrender sets Cambria for DOCX and ODT, which is about 10% wider. Its digits are
+--- wider still, so a date column would otherwise break.
+local FONT_SCALE = { latex = 1, docx = 1.1, odt = 1.1 }
 
 --- Extra room on top of the estimated word width, for estimation errors.
 local SAFETY = 1.05
@@ -122,6 +151,37 @@ local function longest_word_em(cell)
     end,
   })
   finish_word()
+  return longest
+end
+
+--- Returns the estimated width in em of the longest line in a cell, with no line breaks other than
+--- explicit ones and paragraph ends.
+local function longest_line_em(cell)
+  local longest, current = 0, 0
+  local function finish_line()
+    longest = math.max(longest, current)
+    current = 0
+  end
+  pandoc.Blocks(cell.contents):walk({
+    traverse = "topdown",
+    Str = function(str)
+      current = current + text_em(str.text, false)
+    end,
+    Code = function(code)
+      current = current + text_em(code.text, true)
+    end,
+    Space = function()
+      current = current + SPACE_EM
+    end,
+    SoftBreak = function()
+      current = current + SPACE_EM
+    end,
+    LineBreak = finish_line,
+    Block = function()
+      finish_line()
+    end,
+  })
+  finish_line()
   return longest
 end
 
@@ -271,8 +331,56 @@ local function fit_table(tbl, text_width_pt, font_pt)
   return with_widths(minimums, smallest.command)
 end
 
+--- Returns the table with column widths from its content, or nil when it already has widths. For
+--- DOCX and ODT, see the description at the top. The font size is in pt, multiplied by the width of
+--- the font relative to Latin Modern.
+local function fit_content(tbl, text_width_pt, font_pt)
+  for _, colspec in ipairs(tbl.colspecs) do
+    if type(colspec[2]) == "number" then
+      return nil
+    end
+  end
+  local padding_pt = 2 * TABCOLSEP_PT
+  local word_pt, line_pt = {}, {}
+  local total_word, total_line = 0, 0
+  for i, cells in ipairs(cells_per_column(tbl)) do
+    local word_em, line_em = 0, 0
+    for _, cell in ipairs(cells) do
+      word_em = math.max(word_em, longest_word_em(cell))
+      line_em = math.max(line_em, longest_line_em(cell))
+    end
+    word_pt[i] = word_em * font_pt * SAFETY + padding_pt
+    line_pt[i] = math.max(line_em * font_pt * SAFETY + padding_pt, word_pt[i])
+    total_word = total_word + word_pt[i]
+    total_line = total_line + line_pt[i]
+  end
+
+  local widths = {}
+  if total_line <= text_width_pt then
+    for i, pt in ipairs(line_pt) do
+      widths[i] = pt / text_width_pt
+    end
+  elseif total_word <= text_width_pt then
+    local room = text_width_pt - total_word
+    for i, pt in ipairs(word_pt) do
+      widths[i] = (pt + room * (line_pt[i] - pt) / (total_line - total_word)) / text_width_pt
+    end
+  else
+    io.stderr:write("[table-widths.lua] WARNING: table " .. table_name(tbl)
+      .. " is too wide for the page, words in its columns may break\n")
+    for i, pt in ipairs(word_pt) do
+      widths[i] = pt / total_word
+    end
+  end
+  for i, width in ipairs(widths) do
+    tbl.colspecs[i][2] = width
+  end
+  return tbl
+end
+
 function Pandoc(doc)
-  if not FORMAT:match("latex") then
+  local format = FORMAT:match("latex") and "latex" or FORMAT
+  if not DEFAULT_FONT_PT[format] then
     return nil
   end
   local text_width = doc.meta["table-text-width"]
@@ -281,10 +389,13 @@ function Pandoc(doc)
     return nil
   end
   local font_size = doc.meta["fontsize"]
-  local font_pt = font_size and to_pt(pandoc.utils.stringify(font_size)) or 10
+  local font_pt = font_size and to_pt(pandoc.utils.stringify(font_size)) or DEFAULT_FONT_PT[format]
   return doc:walk({
     Table = function(tbl)
-      return fit_table(tbl, text_width_pt, font_pt)
+      if format == "latex" then
+        return fit_table(tbl, text_width_pt, font_pt)
+      end
+      return fit_content(tbl, text_width_pt, font_pt * FONT_SCALE[format])
     end,
   })
 end
