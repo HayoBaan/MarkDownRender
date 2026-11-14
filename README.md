@@ -674,6 +674,10 @@ on macOS). Installing `mdrender` doesn't need Bats.
 - The tests of a table of contents in DOCX, ODT, and PDF skip themselves when LibreOffice or a PDF
   engine they need is missing.
 
+The Bats tests run in parallel with `TEST_JOBS` set to more than 1, e.g. `TEST_JOBS=8 tests/run`.
+That takes [GNU parallel](https://www.gnu.org/software/parallel/) (`brew install parallel`).
+Without it, they run one at a time.
+
 `tests/run` exits with status 0 when all tests pass, and 1 when a test fails. When pandoc,
 `python3`, or Bats is missing, it runs the tests it can and exits with status 77, which means
 "skipped".
