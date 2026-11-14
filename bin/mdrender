@@ -71,7 +71,7 @@
 set -euo pipefail
 
 readonly PROGRAM="$(basename "$0")"
-readonly VERSION="0.006"
+readonly VERSION="0.007"
 
 # Prints the header comment of this script as its help
 help() {
@@ -89,23 +89,25 @@ die() {
   exit 1
 }
 
+# Prints pandoc's user data directory, where install.sh puts the filters. Pandoc is a large program
+# that takes a while to start, so mdrender asks it once, and keeps the answer in pandoc_data_dir.
+pandoc_user_data_dir() {
+  pandoc --version | sed -n 's/^User data directory: //p'
+}
+
 # Prints the full path of an installed filter, or exits when it is not installed.
 find_filter() {
   local name="$1"
-  local data_dir
-  data_dir="$(pandoc --version | sed -n 's/^User data directory: //p')"
-  local path="${data_dir}/filters/${name}"
-  [[ -f "${path}" ]] || die "filter ${name} not found in ${data_dir}/filters (run install.sh from the MarkDownRender repository)"
+  local path="${pandoc_data_dir}/filters/${name}"
+  [[ -f "${path}" ]] || die "filter ${name} not found in ${pandoc_data_dir}/filters (run install.sh from the MarkDownRender repository)"
   echo "${path}"
 }
 
 # Prints the full path of toc_update.py, the LibreOffice macro that fills in tables of contents, or
 # exits when it is not installed.
 find_toc_macro() {
-  local data_dir
-  data_dir="$(pandoc --version | sed -n 's/^User data directory: //p')"
-  local path="${data_dir}/mdrender/toc_update.py"
-  [[ -f "${path}" ]] || die "toc_update.py not found in ${data_dir}/mdrender (run install.sh from the MarkDownRender repository)"
+  local path="${pandoc_data_dir}/mdrender/toc_update.py"
+  [[ -f "${path}" ]] || die "toc_update.py not found in ${pandoc_data_dir}/mdrender (run install.sh from the MarkDownRender repository)"
   echo "${path}"
 }
 
@@ -271,6 +273,7 @@ case "${theme}" in
   *) die "unsupported theme ${theme} (use light, dark or system)" ;;
 esac
 
+pandoc_data_dir="$(pandoc_user_data_dir)"
 diagram_filter="$(find_filter diagram.lua)"
 directives_filter="$(find_filter directives.lua)"
 toc_filter="$(find_filter toc.lua)"
@@ -581,9 +584,7 @@ reference_doc_for() {
   fi
   local pandoc_default="false"
   if [[ -z "${base}" ]]; then
-    local data_dir
-    data_dir="$(pandoc --version | sed -n 's/^User data directory: //p')"
-    base="${data_dir}/reference.${doc_format}"
+    base="${pandoc_data_dir}/reference.${doc_format}"
     if [[ ! -f "${base}" ]]; then
       base="${tmp_dir}/default-reference.${doc_format}"
       pandoc --print-default-data-file "reference.${doc_format}" > "${base}"
