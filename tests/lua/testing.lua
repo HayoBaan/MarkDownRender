@@ -52,10 +52,30 @@ function M.read(markdown)
 end
 
 --- Returns the document with the named filter from lua-filter applied, as pandoc runs it for the
---- given output format (html when left out).
-function M.apply(filter, doc, format)
+--- given output format (html when left out). The optional globals replace globals of the filter,
+--- such as io to catch what it writes to stderr.
+function M.apply(filter, doc, format, globals)
   local env = setmetatable({ FORMAT = format or "html" }, { __index = _G })
+  for name, value in pairs(globals or {}) do
+    env[name] = value
+  end
   return pandoc.utils.run_lua_filter(doc, pandoc.path.join({ M.filter_dir, filter }), env)
+end
+
+--- Returns a stand-in for io whose stderr collects what is written to it, and a function that
+--- returns the text collected so far.
+function M.capture_stderr()
+  local written = {}
+  local stderr = {
+    write = function(_, ...)
+      for _, text in ipairs({ ... }) do
+        written[#written + 1] = text
+      end
+    end,
+  }
+  return setmetatable({ stderr = stderr }, { __index = io }), function()
+    return table.concat(written)
+  end
 end
 
 --- Returns a short description of each block, such as "Header 1 Title" or "RawBlock html <!-- x

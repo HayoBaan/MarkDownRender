@@ -12,8 +12,22 @@
 #   - headings and title:
 #     - one level-1 heading becomes the title, also after HTML comments;
 #     - several level-1 headings give a warning and no shift;
+#     - with a YAML title, no shift and no warning, also for the table of contents;
 #     - a heading in a fenced code block isn't counted;
 #     - --no-shift;
+#   - table of contents:
+#     - [[_TOC_]] without the title, and [TOC] with --no-shift;
+#     - an outdated <!-- TOC --> list, updated in the output only, with a warning;
+#     - a PDF with Typst, which fails on a link to the title;
+#     - DOCX and ODT, filled in by LibreOffice when it's installed, and a warning when it's missing
+#       or fails;
+#     - a PDF with LibreOffice, with page numbers;
+#   - DOCX table column widths from the content;
+#   - DOCX and ODT styles:
+#     - from pandoc's reference document: Cambria or Caladea, the headings of the PDF, centered
+#       tables, and no Word compatibility mode;
+#     - none of those from an own reference document;
+#     - a line under an ODT table's header row;
 #   - language: from a lang directive, YAML metadata, --lang, and --gb;
 #   - links: --link-ext rewrites relative .md links;
 #   - input and output: stdin to stdout, and a file next to the input.
@@ -34,6 +48,14 @@ setup() {
   MDRENDER="${BATS_TEST_DIRNAME}/../bin/mdrender"
   cd "${BATS_TEST_TMPDIR}"
 }
+
+# Prints a member of a zip file, such as word/document.xml of a DOCX.
+zip_member() {
+  python3 -c 'import sys, zipfile; sys.stdout.write(zipfile.ZipFile(sys.argv[1]).read(sys.argv[2]).decode())' "$1" "$2"
+}
+
+# A document with a table of contents, and a heading on a second page.
+readonly TOC_DOC=$'# Title\n\n[TOC]\n\n## Part\n\n<!-- newpage -->\n\n## Last\n'
 
 # Writes the text to doc.md, and renders it to HTML on stdout, with the given extra options. The
 # output and status end up in Bats' $output, $stderr, and
@@ -106,6 +128,24 @@ render() {
   [[ "${output}" == *"<title>doc</title>"* ]]
 }
 
+@test "with a YAML title, the headings keep their levels, without a warning" {
+  render $'---\ntitle: From YAML\n---\n\n# Part\n\n## Detail\n'
+  [[ "${status}" -eq 0 ]]
+  [[ "${output}" == *"<title>From YAML</title>"* ]]
+  [[ "${output}" == *'<h1 id="part">Part</h1>'* ]]
+  [[ "${output}" == *'<h2 id="detail">Detail</h2>'* ]]
+  [[ -z "${stderr}" ]]
+  render $'---\ntitle: From YAML\n---\n\n# One\n\n# Two\n'
+  [[ "${output}" == *'<h1 id="two">Two</h1>'* ]]
+  [[ -z "${stderr}" ]]
+}
+
+@test "with a YAML title, the table of contents lists the level-1 headings" {
+  render $'---\ntitle: From YAML\n---\n\n[TOC]\n\n# Part\n'
+  [[ "${status}" -eq 0 ]]
+  [[ "${output}" == *'<a href="#part" id="toc-part">Part</a>'* ]]
+}
+
 @test "a level-1 heading in a fenced code block isn't counted" {
   render $'# Title\n\n```sh\n# a comment\n```\n'
   [[ "${status}" -eq 0 ]]
@@ -119,6 +159,164 @@ render() {
   [[ "${output}" == *'<h1 id="title">Title</h1>'* ]]
   [[ "${output}" == *'<h2 id="part">Part</h2>'* ]]
   [[ "${output}" == *"<title>doc</title>"* ]]
+}
+
+@test "[[_TOC_]] becomes a table of contents without the title" {
+  render $'# Title\n\n[[_TOC_]]\n\n## Part\n\n### Detail\n'
+  [[ "${status}" -eq 0 ]]
+  [[ "${output}" == *'<a href="#part" id="toc-part">Part</a>'* ]]
+  [[ "${output}" == *'<a href="#detail" id="toc-detail">Detail</a>'* ]]
+  [[ "${output}" != *'href="#title"'* ]]
+  [[ "${output}" != *"_TOC_"* ]]
+  [[ -z "${stderr}" ]]
+}
+
+@test "with --no-shift, [TOC] lists the level-1 heading too" {
+  render $'# Title\n\n[TOC]\n\n## Part\n' --no-shift
+  [[ "${status}" -eq 0 ]]
+  [[ "${output}" == *'<a href="#title" id="toc-title">Title</a>'* ]]
+  [[ "${output}" == *'<a href="#part" id="toc-part">Part</a>'* ]]
+}
+
+@test "an outdated <!-- TOC --> list is updated in the output only, with a warning" {
+  local text=$'# Title\n\n<!-- TOC -->\n* [Title](#title)\n  * [Old](#old)\n<!-- TOC -->\n\n## Part\n'
+  render "${text}"
+  [[ "${status}" -eq 0 ]]
+  [[ "${output}" == *'<a href="#part" id="toc-part">Part</a>'* ]]
+  [[ "${output}" != *'#old'* ]]
+  [[ "${stderr}" == "[toc.lua] WARNING: doc.md: the table of contents between the <!-- TOC --> lines is out of date, the output uses an updated one" ]]
+  printf '%s' "${text}" | cmp - doc.md
+}
+
+@test "a table of contents in a PDF with Typst has no link to the title" {
+  command -v typst >/dev/null || skip "typst is not installed"
+  printf '# Title\n\n[[_TOC_]]\n\n## Part\n' > doc.md
+  run --separate-stderr "${MDRENDER}" --format pdf --pdf-engine typst --output doc.pdf doc.md
+  [[ "${status}" -eq 0 ]]
+  [[ -s doc.pdf ]]
+}
+
+@test "a DOCX table of contents is filled in by LibreOffice" {
+  command -v soffice >/dev/null || skip "LibreOffice is not installed"
+  printf '%s' "${TOC_DOC}" > doc.md
+  run --separate-stderr "${MDRENDER}" --format docx doc.md
+  [[ "${status}" -eq 0 ]]
+  [[ "${stderr}" == "mdrender: wrote doc.docx" ]]
+  local document
+  document="$(zip_member doc.docx word/document.xml)"
+  [[ "${document}" =~ \<w:instrText[^\>]*\>\ ?TOC\  ]]
+  [[ "${document}" == *'w:anchor="_part"'* ]]
+  [[ "${document}" == *'<w:t>Last</w:t><w:tab/><w:t>2</w:t>'* ]]
+  [[ "${document}" == *'w:dirty="true"'* ]]
+  [[ "${document}" != *"__RefHeading"* ]]
+}
+
+@test "an ODT table of contents is filled in by LibreOffice" {
+  command -v soffice >/dev/null || skip "LibreOffice is not installed"
+  printf '%s' "${TOC_DOC}" > doc.md
+  run --separate-stderr "${MDRENDER}" --format odt doc.md
+  [[ "${status}" -eq 0 ]]
+  local content
+  content="$(zip_member doc.odt content.xml)"
+  [[ "${content}" == *'xlink:href="#last"'* ]]
+  [[ "${content}" == *'>Last</text:a><text:tab/>'* ]]
+  [[ "${content}" != *"__RefHeading"* ]]
+}
+
+@test "when LibreOffice fails, the DOCX keeps an empty table of contents, with a warning" {
+  mkdir fake
+  printf '#!/bin/sh\nexit 0\n' > fake/soffice
+  chmod +x fake/soffice
+  printf '%s' "${TOC_DOC}" > doc.md
+  PATH="${PWD}/fake:${PATH}" run --separate-stderr "${MDRENDER}" --format docx doc.md
+  [[ "${status}" -eq 0 ]]
+  [[ "${stderr}" == *"mdrender: doc: LibreOffice could not fill in the table of contents: Word fills it in when it updates the fields"* ]]
+  [[ "$(zip_member doc.docx word/document.xml)" == *'w:fldCharType="separate"/></w:r></w:p><w:p><w:r><w:fldChar w:fldCharType="end"/>'* ]]
+}
+
+@test "without LibreOffice, the ODT keeps an empty table of contents, with a warning" {
+  # A PATH with pandoc, python3, and the system tools, but without LibreOffice.
+  local dir dirs=("$(dirname "$(command -v pandoc)")" "$(dirname "$(command -v python3)")" /usr/bin /bin)
+  for dir in "${dirs[@]}"; do
+    [[ -x "${dir}/soffice" ]] && skip "soffice is in ${dir}, next to tools mdrender needs"
+  done
+  printf '%s' "${TOC_DOC}" > doc.md
+  PATH="$(IFS=:; echo "${dirs[*]}")" run --separate-stderr "${MDRENDER}" --format odt doc.md
+  [[ "${status}" -eq 0 ]]
+  [[ "${stderr}" == *"mdrender: doc: LibreOffice not found, so the table of contents is empty: it stays empty until it is updated in LibreOffice"* ]]
+  [[ "$(zip_member doc.odt content.xml)" == *"<text:index-body/>"* ]]
+}
+
+@test "a PDF with LibreOffice has a table of contents with page numbers" {
+  command -v soffice >/dev/null || skip "LibreOffice is not installed"
+  command -v pdftotext >/dev/null || skip "pdftotext is not installed"
+  printf '%s' "${TOC_DOC}" > doc.md
+  run --separate-stderr "${MDRENDER}" --format pdf --pdf-engine libreoffice --output doc.pdf doc.md
+  [[ "${status}" -eq 0 ]]
+  [[ "$(pdftotext -layout doc.pdf - | head -3)" =~ Last\ ?\.+\ ?2 ]]
+}
+
+@test "DOCX table columns get their widths from the content" {
+  printf '| Datum | Auteur | Betreft |\n|---|---|---|\n| 2026-11-13 | Hayo Baan | %s |\n' \
+    "A description that makes this row longer than pandoc's line limit of seventy-two characters" > doc.md
+  run --separate-stderr "${MDRENDER}" --format docx doc.md
+  [[ "${status}" -eq 0 ]]
+  local document widths
+  document="$(zip_member doc.docx word/document.xml)"
+  [[ "${document}" != *'<w:tblW w:type="auto"'* ]]
+  widths=($(grep -o 'w:gridCol w:w="[0-9]*"' <<< "${document}" | grep -o '[0-9]*'))
+  [[ ${#widths[@]} -eq 3 ]]
+  # Short date and name columns, and the rest for the description.
+  (( widths[2] > 2 * widths[0] && widths[2] > 2 * widths[1] ))
+}
+
+@test "DOCX and ODT get the font and headings of the PDF and centered tables, but not with an own reference document" {
+  printf '| A | B |\n|---|---|\n| 1 | 2 |\n' > doc.md
+  run --separate-stderr "${MDRENDER}" --format docx doc.md
+  [[ "${status}" -eq 0 ]]
+  [[ "$(zip_member doc.docx word/theme/theme1.xml)" =~ \<a:minorFont\>[[:space:]]*\<a:latin\ typeface=\"Cambria\" ]]
+  # Pandoc writes the reference document's styles again, so the spacing in the tag can differ.
+  [[ "$(zip_member doc.docx word/styles.xml)" =~ \<w:tblPr\>[[:space:]]*\<w:jc\ w:val=\"center\" ]]
+  # No compatibility mode in Word.
+  [[ "$(zip_member doc.docx word/settings.xml)" =~ w:name=\"compatibilityMode\"[^\>]*w:val=\"15\" ]]
+  # Headings as in the PDF: black, bold, not italic, and 17, 14, then 12 pt.
+  python3 -c '
+import re, sys, zipfile
+styles = zipfile.ZipFile("doc.docx").read("word/styles.xml").decode()
+headings = re.findall(r"<w:style\b[^>]*w:styleId=\"Heading([1-9])\".*?</w:style>", styles, re.S)
+texts = re.findall(r"<w:style\b[^>]*w:styleId=\"Heading[1-9]\".*?</w:style>", styles, re.S)
+sizes = {"1": "34", "2": "28"}
+ok = len(texts) == 9 and all(
+    "<w:color" not in text and re.search(r"<w:b ?/>", text) and not re.search(r"<w:i ?/>", text)
+    and re.search(r"<w:sz w:val=\"%s\"" % sizes.get(level, "24"), text)
+    for level, text in zip(headings, texts))
+sys.exit(0 if ok else 1)'
+  run --separate-stderr "${MDRENDER}" --format odt doc.md
+  [[ "$(zip_member doc.odt styles.xml)" == *'<style:font-face style:name="Caladea"'* ]]
+  # Paragraph properties first, as the schema wants, and level 2 at 14 pt, bold, not italic.
+  python3 -c '
+import re, sys, zipfile
+styles = zipfile.ZipFile("doc.odt").read("styles.xml").decode()
+style = re.search(r"<style:style style:name=\"Heading_20_2\".*?</style:style>", styles, re.S).group(0)
+elements = re.findall(r"<style:(paragraph|text)-properties", style)
+text = re.search(r"<style:text-properties[^>]*>", style).group(0)
+ok = elements == ["paragraph", "text"] and all(
+    part in text for part in ("fo:font-size=\"14pt\"", "fo:font-weight=\"bold\"", "fo:font-style=\"normal\""))
+sys.exit(0 if ok else 1)'
+
+  pandoc -o own.docx --print-default-data-file reference.docx
+  run --separate-stderr "${MDRENDER}" --format docx --paper a5 --reference-doc own.docx doc.md
+  [[ "${status}" -eq 0 ]]
+  [[ "$(zip_member doc.docx word/theme/theme1.xml)" != *'typeface="Cambria"'* ]]
+  [[ "$(zip_member doc.docx word/styles.xml)" == *'w:val="0F4761"'* ]]
+  [[ ! "$(zip_member doc.docx word/styles.xml)" =~ \<w:tblPr\>[[:space:]]*\<w:jc\ w:val=\"center\" ]]
+}
+
+@test "an ODT table gets a line under its header row" {
+  printf '| A | B |\n|---|---|\n| 1 | 2 |\n' > doc.md
+  run --separate-stderr "${MDRENDER}" --format odt doc.md
+  [[ "${status}" -eq 0 ]]
+  [[ "$(zip_member doc.odt content.xml)" =~ TableHeaderRowCell\"[^\>]*\>[[:space:]]*\<style:table-cell-properties[^\>]*fo:border-bottom=\"0.5pt\ solid ]]
 }
 
 @test "a lang directive sets the HTML language" {

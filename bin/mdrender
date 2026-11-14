@@ -50,6 +50,11 @@
 #   <!-- lang: nl -->     Document language, unless --lang or YAML sets one.
 #   <!-- newpage -->      Page break in docx, odt, pdf, and printed html.
 #
+# A paragraph that is only [[_TOC_]] or [TOC], as GitLab writes it, becomes a table of contents. So
+# does a list between two <!-- TOC --> lines, as IntelliJ IDEA writes it. It is updated in the
+# output only, with a warning when it was out of date. PDF, DOCX, and ODT get one with page numbers.
+# For DOCX and ODT, LibreOffice fills it in, when it's installed.
+#
 # Examples:
 #   mdrender advice.md plan.md --link-ext
 #   mdrender -f odt advice.md
@@ -66,7 +71,7 @@
 set -euo pipefail
 
 readonly PROGRAM="$(basename "$0")"
-readonly VERSION="0.005"
+readonly VERSION="0.006"
 
 # Prints the header comment of this script as its help
 help() {
@@ -91,6 +96,16 @@ find_filter() {
   data_dir="$(pandoc --version | sed -n 's/^User data directory: //p')"
   local path="${data_dir}/filters/${name}"
   [[ -f "${path}" ]] || die "filter ${name} not found in ${data_dir}/filters (run install.sh from the MarkDownRender repository)"
+  echo "${path}"
+}
+
+# Prints the full path of toc_update.py, the LibreOffice macro that fills in tables of contents, or
+# exits when it is not installed.
+find_toc_macro() {
+  local data_dir
+  data_dir="$(pandoc --version | sed -n 's/^User data directory: //p')"
+  local path="${data_dir}/mdrender/toc_update.py"
+  [[ -f "${path}" ]] || die "toc_update.py not found in ${data_dir}/mdrender (run install.sh from the MarkDownRender repository)"
   echo "${path}"
 }
 
@@ -258,6 +273,7 @@ esac
 
 diagram_filter="$(find_filter diagram.lua)"
 directives_filter="$(find_filter directives.lua)"
+toc_filter="$(find_filter toc.lua)"
 links_filter="$(find_filter md-links.lua)"
 code_breaks_filter="$(find_filter code-breaks.lua)"
 table_widths_filter="$(find_filter table-widths.lua)"
@@ -265,15 +281,19 @@ table_widths_filter="$(find_filter table-widths.lua)"
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
-# Writes a copy of a docx or odt reference document with the requested page setup.
-# Arguments: format, base document, output document.
+# Writes a copy of a docx or odt reference document with the requested page setup. An odt also gets
+# the paragraph style for page breaks. When the base is pandoc's built-in default, the copy also
+# gets the look of the PDF: a serif font, its headings, and in a docx centered tables. A docx also
+# gets the compatibility setting of Word 2013 or later, so Word doesn't open it in compatibility
+# mode. Your own reference document keeps its own fonts and styles. Arguments: format, base
+# document, output document, and whether the base is pandoc's default (true or false).
 make_reference_doc() {
-  python3 - "$1" "$2" "$3" "${paper}" "${landscape}" "${page_margin}" <<'PYTHON'
+  python3 - "$1" "$2" "$3" "$4" "${paper}" "${landscape}" "${page_margin}" <<'PYTHON'
 import re
 import sys
 import zipfile
 
-fmt, base, out, paper, landscape, margin = sys.argv[1:7]
+fmt, base, out, pandoc_default, paper, landscape, margin = sys.argv[1:8]
 
 # Paper sizes in millimeters, portrait.
 SIZES = {"a3": (297, 420), "a4": (210, 297), "a5": (148, 210),
@@ -288,6 +308,24 @@ width_mm, height_mm = SIZES[paper]
 if landscape == "true":
     width_mm, height_mm = height_mm, width_mm
 orientation = "landscape" if landscape == "true" else "portrait"
+
+# The font for body text and headings, per format: a serif font, as in the PDF from Typst or LaTeX.
+#   - docx: Cambria, which comes with Word. LibreOffice doesn't have it. It shows Caladea instead,
+#     which comes with LibreOffice and has the same character widths, so a docx wraps the same way.
+#   - odt: Caladea itself, so LibreOffice, the word processor of the format, shows a font it has.
+FONT = {"docx": "Cambria", "odt": "Caladea"}[fmt]
+
+# The headings of the PDF from Typst, scaled to the 12 pt text of pandoc's reference documents: all
+# bold, none italic. The title is 1.5 times the text size, level 1 1.4 times, level 2 1.2 times, and
+# deeper levels the text size. Each entry: font size in pt, space above in pt, space below in pt.
+TITLE = (18, 0, 12)
+HEADINGS = {1: (17, 14, 4), 2: (14, 12, 4)}
+DEEPER_HEADING = (12, 10, 4)
+
+
+def heading_format(level):
+    """Returns the font size, space above, and space below in pt for a heading level."""
+    return HEADINGS.get(level, DEEPER_HEADING)
 
 
 def docx_page(xml):
@@ -336,20 +374,165 @@ PAGEBREAK_STYLE = ('<style:style style:name="Pagebreak" style:family="paragraph"
                    '<style:paragraph-properties fo:break-before="page"/></style:style>')
 
 
+def odt_fonts(xml):
+    """Sets FONT in the default paragraph style and the Standard style, which the others build on."""
+    face = (f'<style:font-face style:name="{FONT}" svg:font-family="{FONT}" '
+            'style:font-family-generic="roman" style:font-pitch="variable"/>')
+    if f'style:font-face style:name="{FONT}"' not in xml:
+        xml = xml.replace("</office:font-face-decls>", face + "</office:font-face-decls>", 1)
+
+    def set_font(style):
+        return re.sub(r'\bstyle:font-name="[^"]*"', f'style:font-name="{FONT}"', style.group(0))
+
+    xml = re.sub(r'<style:default-style style:family="paragraph">.*?</style:default-style>',
+                 set_font, xml, count=1, flags=re.S)
+    return re.sub(r'<style:style style:name="Standard"[^>]*>.*?</style:style>', set_font, xml,
+                  count=1, flags=re.S)
+
+
+def set_attributes(tag, values):
+    """Returns an opening XML tag with the attributes set, replaced or added."""
+    for name, value in values.items():
+        pattern = rf'\b{re.escape(name)}="[^"]*"'
+        if re.search(pattern, tag):
+            tag = re.sub(pattern, f'{name}="{value}"', tag)
+        else:
+            tag = re.sub(r"\s*(/?>)$", f' {name}="{value}"\\1', tag)
+    return tag
+
+
+def odt_heading(style, size_pt, above_pt, below_pt):
+    """Returns an ODT paragraph style with the format of a heading: bold, not italic, the size, and
+    the space above and below."""
+    margins = {"fo:margin-top": f"{above_pt}pt", "fo:margin-bottom": f"{below_pt}pt"}
+    text = {}
+    for suffix in ("", "-asian", "-complex"):
+        prefix = "fo:" if suffix == "" else "style:"
+        text[f"{prefix}font-size{suffix}"] = f"{size_pt}pt"
+        text[f"{prefix}font-weight{suffix}"] = "bold"
+        text[f"{prefix}font-style{suffix}"] = "normal"
+    for element, values in (("paragraph-properties", margins), ("text-properties", text)):
+        pattern = rf"<style:{element}\b[^>]*>"
+        if re.search(pattern, style):
+            style = re.sub(pattern, lambda match: set_attributes(match.group(0), values), style,
+                           count=1)
+        else:
+            # Paragraph properties come before text properties, which come last.
+            follower = "<style:text-properties" if element == "paragraph-properties" else ""
+            if not follower or follower not in style:
+                follower = "</style:style>"
+            style = style.replace(follower,
+                                  set_attributes(f"<style:{element}/>", values) + follower, 1)
+    return style
+
+
+def odt_headings(xml):
+    """Gives the title and the headings the format of the PDF, see TITLE and HEADINGS."""
+    xml = re.sub(r'<style:style style:name="Title"[^>]*>.*?</style:style>',
+                 lambda match: odt_heading(match.group(0), *TITLE), xml, count=1, flags=re.S)
+    return re.sub(r'<style:style style:name="Heading_20_(\d+)"[^>]*>.*?</style:style>',
+                  lambda match: odt_heading(match.group(0), *heading_format(int(match.group(1)))),
+                  xml, flags=re.S)
+
+
 def odt_styles(xml):
-    """Sets the page setup, and adds the Pagebreak style when it is missing."""
+    """Sets the page setup, and the font and headings when the base is pandoc's default. Adds the
+    Pagebreak style when it is missing."""
     xml = odt_page(xml)
+    if pandoc_default == "true":
+        xml = odt_headings(odt_fonts(xml))
     if 'style:name="Pagebreak"' not in xml:
         xml = xml.replace("</office:styles>", PAGEBREAK_STYLE + "</office:styles>", 1)
     return xml
 
 
-member, transform = ("word/document.xml", docx_page) if fmt == "docx" else ("styles.xml", odt_styles)
+def docx_heading(style, size_pt, above_pt, below_pt):
+    """Returns a docx paragraph style with the format of a heading: black, bold, not italic, the
+    size, and the space above and below. Word wants run properties in the order of its schema: bold
+    after the fonts, the size after the color."""
+    def paragraph(match):
+        return re.sub(r"<w:spacing\b[^>]*/>",
+                      lambda spacing: set_attributes(spacing.group(0), {
+                          "w:before": str(above_pt * 20), "w:after": str(below_pt * 20)}),
+                      match.group(0), count=1)
+
+    def run(match):
+        properties = re.sub(r"<w:(?:b|bCs|i|iCs|color|sz|szCs)\b[^>]*/>", "", match.group(0))
+        bold = "<w:b/><w:bCs/>"
+        if "<w:rFonts" in properties:
+            properties = re.sub(r"(<w:rFonts\b[^>]*/>)", lambda fonts: fonts.group(1) + bold,
+                                properties, count=1)
+        else:
+            properties = properties.replace("<w:rPr>", "<w:rPr>" + bold, 1)
+        size = f'<w:sz w:val="{size_pt * 2}"/><w:szCs w:val="{size_pt * 2}"/>'
+        return properties.replace("</w:rPr>", size + "</w:rPr>", 1)
+
+    style = re.sub(r"<w:pPr>.*?</w:pPr>", paragraph, style, count=1, flags=re.S)
+    if "<w:rPr>" not in style:
+        style = style.replace("</w:style>", "<w:rPr></w:rPr></w:style>", 1)
+    return re.sub(r"<w:rPr>.*?</w:rPr>", run, style, count=1, flags=re.S)
+
+
+def docx_styles(xml):
+    """Gives the title and headings the format of the PDF, and centers tables, as in ODT and PDF.
+
+    Pandoc's heading styles copy Word's: dark blue or gray, not bold, and level 4 italic. They get
+    the format of TITLE and HEADINGS instead. Tables get the alignment of the Table style that pandoc
+    uses.
+    """
+    xml = re.sub(r'<w:style\b[^>]*\bw:styleId="Title"[^>]*>.*?</w:style>',
+                 lambda match: docx_heading(match.group(0), *TITLE), xml, count=1, flags=re.S)
+    xml = re.sub(r'<w:style\b[^>]*\bw:styleId="Heading([1-9])"[^>]*>.*?</w:style>',
+                 lambda match: docx_heading(match.group(0), *heading_format(int(match.group(1)))),
+                 xml, flags=re.S)
+
+    def center(style):
+        text = style.group(0)
+        if "<w:jc " in text:
+            return text
+        if "<w:tblPr>" in text:
+            return text.replace("<w:tblPr>", '<w:tblPr><w:jc w:val="center"/>', 1)
+        return text.replace("</w:style>", '<w:tblPr><w:jc w:val="center"/></w:tblPr></w:style>', 1)
+
+    return re.sub(r'<w:style\b[^>]*\bw:styleId="Table"[^>]*>.*?</w:style>', center, xml,
+                  count=1, flags=re.S)
+
+
+# The compatibility setting that a document of Word 2013 or later has. Without it, Word opens a docx
+# in compatibility mode, and pandoc's reference document lacks it.
+DOCX_COMPAT = ('<w:compat><w:compatSetting w:name="compatibilityMode" '
+               'w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat>')
+
+
+def docx_settings(xml):
+    """Adds DOCX_COMPAT when the settings have no compat element. Word wants the settings in the
+    order of its schema: compat comes before rsids and themeFontLang."""
+    if "<w:compat" in xml:
+        return xml
+    for follower in ("<w:docVars", "<w:rsids", "<w:themeFontLang", "</w:settings>"):
+        if follower in xml:
+            return xml.replace(follower, DOCX_COMPAT + follower, 1)
+    return xml
+
+
+def docx_theme(xml):
+    """Sets FONT as the theme's fonts for headings (major) and body text (minor)."""
+    return re.sub(r'(<a:(?:major|minor)Font>\s*<a:latin typeface=")[^"]*"',
+                  lambda match: match.group(1) + FONT + '"', xml)
+
+
+if fmt == "docx":
+    transforms = {"word/document.xml": docx_page}
+    if pandoc_default == "true":
+        transforms.update({"word/styles.xml": docx_styles, "word/theme/theme1.xml": docx_theme,
+                           "word/settings.xml": docx_settings})
+else:
+    transforms = {"styles.xml": odt_styles}
 with zipfile.ZipFile(base) as source, zipfile.ZipFile(out, "w") as target:
     for info in source.infolist():
         data = source.read(info.filename)
-        if info.filename == member:
-            data = transform(data.decode("utf-8")).encode("utf-8")
+        if info.filename in transforms:
+            data = transforms[info.filename](data.decode("utf-8")).encode("utf-8")
         # ODT requires an uncompressed mimetype entry, which keeping the original compression preserves.
         target.writestr(info, data, compress_type=info.compress_type)
 PYTHON
@@ -396,6 +579,7 @@ reference_doc_for() {
     echo "${base}"
     return
   fi
+  local pandoc_default="false"
   if [[ -z "${base}" ]]; then
     local data_dir
     data_dir="$(pandoc --version | sed -n 's/^User data directory: //p')"
@@ -403,10 +587,12 @@ reference_doc_for() {
     if [[ ! -f "${base}" ]]; then
       base="${tmp_dir}/default-reference.${doc_format}"
       pandoc --print-default-data-file "reference.${doc_format}" > "${base}"
+      pandoc_default="true"
     fi
   fi
   [[ -f "${base}" ]] || die "reference document ${base} not found"
-  make_reference_doc "${doc_format}" "${base}" "${generated}" || die "could not create the page setup"
+  make_reference_doc "${doc_format}" "${base}" "${generated}" "${pandoc_default}" \
+    || die "could not create the page setup"
   echo "${generated}"
 }
 
@@ -441,6 +627,7 @@ CSS
 #     a block with padding, so it sits on a line of its own, larger than pandoc's style intends. In
 #     a bulleted task list, pandoc's own rule is more specific and places the checkbox where the
 #     bullet is.
+#   - The table of contents from toc.lua without bullets, and with dot leaders and page numbers.
 page_css() {
   local file="${tmp_dir}/page.html"
   local size="${paper}"
@@ -460,6 +647,9 @@ li input[type="checkbox"] {
   margin: 0 0.4em 0 0;
   vertical-align: -0.25em;
 }
+.toc ul { list-style: none; padding-left: 1.5em; }
+.toc > ul { padding-left: 0; }
+.toc a::after { content: leader(".") target-counter(attr(href url), page); }
 </style>
 CSS
   echo "${file}"
@@ -578,6 +768,123 @@ latex_font_metadata() {
   echo "${file}"
 }
 
+# Runs toc_update.py in LibreOffice, which updates the tables of contents of a DOCX or ODT. In mode
+# pdf it exports the document as PDF. In mode fill it writes the document with its tables of
+# contents filled in, and otherwise as pandoc wrote it. Arguments: mode, input, output. Fails when
+# LibreOffice writes no output. It reports a failing macro only that way.
+#
+# A private user profile lets LibreOffice run while it is open, and holds the macro. The macro reads
+# its arguments from the environment, as a macro URL has none. LibreOffice's messages, such as font
+# configuration warnings, go to libreoffice.log in the temporary folder.
+libreoffice_toc_update() {
+  local mode="$1" input="$2" output="$3"
+  local scripts="${tmp_dir}/libreoffice/user/Scripts/python"
+  mkdir -p "${scripts}"
+  cp "$(find_toc_macro)" "${scripts}/toc_update.py"
+  rm -f "${output}"
+  MDRENDER_TOC_MODE="${mode}" MDRENDER_TOC_INPUT="${input}" MDRENDER_TOC_OUTPUT="${output}" \
+    "$(pdf_program libreoffice)" -env:UserInstallation="file://${tmp_dir}/libreoffice" \
+    --headless --invisible 'vnd.sun.star.script:toc_update.py$update?language=Python&location=user' \
+    >"${tmp_dir}/libreoffice.log" 2>&1 || true
+  [[ -f "${output}" ]]
+}
+
+# Draws a line under the header row of each table in an ODT, as DOCX and PDF have. Pandoc writes the
+# style of a header cell, TableHeaderRowCell, into the document itself, without a border. A
+# reference document can't change it. Argument: the ODT, which is changed in place.
+style_odt_tables() {
+  python3 - "$1" <<'PYTHON'
+import os
+import re
+import sys
+import zipfile
+
+path = sys.argv[1]
+BORDERS = ('fo:border-top="none" fo:border-left="none" fo:border-right="none" '
+           'fo:border-bottom="0.5pt solid #000000"')
+
+
+def header_border(match):
+    """Replaces the borders of the header cell style's properties."""
+    attributes = re.sub(r'\s*fo:border(?:-[a-z]+)?="[^"]*"', "", match.group(2))
+    return match.group(1) + attributes + " " + BORDERS + match.group(3)
+
+
+temporary = path + ".tmp"
+with zipfile.ZipFile(path) as source, zipfile.ZipFile(temporary, "w") as target:
+    for info in source.infolist():
+        data = source.read(info.filename)
+        if info.filename == "content.xml":
+            data = re.sub(r'(<style:style style:name="TableHeaderRowCell"[^>]*>\s*'
+                          r'<style:table-cell-properties)([^>]*?)(\s*/?>)',
+                          header_border, data.decode("utf-8")).encode("utf-8")
+        # ODT requires an uncompressed mimetype entry, which keeping the original compression preserves.
+        target.writestr(info, data, compress_type=info.compress_type)
+os.replace(temporary, path)
+PYTHON
+}
+
+# Succeeds when a DOCX or ODT that pandoc wrote has a table of contents from toc.lua.
+has_toc() {
+  python3 - "$1" <<'PYTHON'
+import sys
+import zipfile
+
+path = sys.argv[1]
+with zipfile.ZipFile(path) as archive:
+    if path.endswith(".docx"):
+        found = b"<w:instrText xml:space=\"preserve\">TOC " in archive.read("word/document.xml")
+    else:
+        found = b"<text:table-of-content" in archive.read("content.xml")
+sys.exit(0 if found else 1)
+PYTHON
+}
+
+# Fills in the tables of contents of a DOCX or ODT with LibreOffice. Pandoc leaves them empty, and
+# only Word or LibreOffice can work out the page numbers. Without LibreOffice, or when it fails, the
+# document stays as it is, with a warning. Arguments: document, name for messages.
+fill_toc() {
+  local document="$1" name="$2"
+  has_toc "${document}" || return 0
+  local later="it stays empty until it is updated in LibreOffice"
+  [[ "${format}" == "docx" ]] && later="Word fills it in when it updates the fields"
+  if ! pdf_program libreoffice >/dev/null; then
+    echo "${PROGRAM}: ${name}: LibreOffice not found, so the table of contents is empty: ${later}" >&2
+    return 0
+  fi
+  local filled="${tmp_dir}/output/filled.${format}"
+  if libreoffice_toc_update fill "${document}" "${filled}"; then
+    mv "${filled}" "${document}"
+  else
+    cat "${tmp_dir}/libreoffice.log" >&2
+    echo "${PROGRAM}: ${name}: LibreOffice could not fill in the table of contents: ${later}" >&2
+  fi
+}
+
+# Writes a finished file to its target: stdout for "-", or the target file.
+deliver() {
+  local file="$1" target="$2"
+  if [[ "${target}" == "-" ]]; then
+    cat "${file}"
+  else
+    mv "${file}" "${target}"
+  fi
+}
+
+# Adds the table widths filter to the pandoc options of render(), in its args array, with the text
+# width of the page. It takes that width from the diagram size options, in its diagram_size array.
+add_table_widths() {
+  local option
+  for option in "${diagram_size[@]}"; do
+    if [[ "${option}" == diagram-max-width=* ]]; then
+      args+=(
+        --lua-filter "${table_widths_filter}"
+        --metadata "table-text-width=${option#diagram-max-width=}"
+      )
+    fi
+  done
+}
+
 # Renders one input file to the given output ("-" for stdout).
 render() {
   local input="$1" target="$2" name="$3" resource_dir="$4"
@@ -589,6 +896,7 @@ render() {
     --standalone
     --resource-path "${resource_dir}"
     --lua-filter "${directives_filter}"
+    --lua-filter "${toc_filter}"
     --lua-filter "${diagram_filter}"
     --lua-filter "${code_breaks_filter}"
   )
@@ -604,8 +912,13 @@ render() {
 
   local h1_count
   h1_count="$(count_h1 "${input}")"
-  if [[ "${shift_headings}" == "true" && "${h1_count}" -eq 1 ]]; then
-    args+=(--shift-heading-level-by=-1)
+  if [[ "${shift_headings}" == "true" ]] && has_yaml_title "${input}"; then
+    # The YAML metadata sets the title, so the level-1 headings stay headings. A shift would turn
+    # them into plain paragraphs.
+    :
+  elif [[ "${shift_headings}" == "true" && "${h1_count}" -eq 1 ]]; then
+    # Filters run before the shift, so the table of contents filter must leave out the title itself.
+    args+=(--shift-heading-level-by=-1 --metadata toc-skip-title=true)
   elif [[ "${shift_headings}" == "true" && "${h1_count}" -gt 1 ]]; then
     echo "${PROGRAM}: ${name}: ${h1_count} level-1 headings found, not shifting heading levels" >&2
   fi
@@ -657,11 +970,17 @@ render() {
       fi
       ;;
     docx | odt)
-      args+=(--reference-doc "$(reference_doc_for "${writer}")")
-      # Keeps diagrams within the text area. With an unmodified own reference document the page
-      # setup is unknown, so diagrams keep their natural size.
+      # Pandoc gives a wide pipe table fixed relative column widths, taken from the lengths of its
+      # dash lines. A short header such as "Datum" then breaks within the word. With a wide line
+      # limit, pandoc gives no widths, and the table widths filter sets them from the content. Word
+      # and LibreOffice would otherwise give all columns the same width.
+      args+=(--reference-doc "$(reference_doc_for "${writer}")" --columns=10000)
+      # Keeps diagrams and tables within the text area. With an unmodified own reference document
+      # the page setup is unknown, so diagrams keep their natural size, and tables get equal
+      # columns.
       if [[ -z "${reference_doc}" || "${page_explicit}" == "true" ]]; then
         args+=("${diagram_size[@]}")
+        add_table_widths
       fi
       ;;
     typst)
@@ -703,15 +1022,7 @@ render() {
       fi
       # Widens table columns that are too narrow for their longest word. It runs after the code
       # breaks filter, whose break opportunities it counts.
-      local option
-      for option in "${diagram_size[@]}"; do
-        if [[ "${option}" == diagram-max-width=* ]]; then
-          args+=(
-            --lua-filter "${table_widths_filter}"
-            --metadata "table-text-width=${option#diagram-max-width=}"
-          )
-        fi
-      done
+      add_table_widths
       ;;
   esac
 
@@ -719,21 +1030,38 @@ render() {
     die "${name}: refusing to write ${format} to a terminal (use --output, --temp or --open, or redirect stdout)"
   fi
 
-  if [[ "${format}" != "pdf" ]]; then
+  if [[ "${format}" == "html" ]]; then
     pandoc "${args[@]}" ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${target}"
+    return
+  fi
+
+  mkdir -p "${tmp_dir}/output"
+  if [[ "${format}" != "pdf" ]]; then
+    # A DOCX or ODT is written to a temporary file first, to fill in its table of contents.
+    local document="${tmp_dir}/output/${name}.${format}"
+    pandoc "${args[@]}" ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${document}"
+    [[ "${format}" == "odt" ]] && style_odt_tables "${document}"
+    fill_toc "${document}" "${name}"
+    deliver "${document}" "${target}"
     return
   fi
 
   # Pandoc only creates a PDF for an output file named *.pdf, and LibreOffice always writes to a
   # folder. Both write to a temporary file first.
   local pdf="${tmp_dir}/output/${name}.pdf"
-  mkdir -p "${tmp_dir}/output"
   if [[ "${pdf_engine}" == "libreoffice" ]]; then
     local odt="${tmp_dir}/output/${name}.odt"
     pandoc "${args[@]}" ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${odt}"
-    # A private user profile lets the conversion run while LibreOffice is open. Its messages, such
-    # as font configuration warnings, are only shown on failure.
-    if ! "$(pdf_program libreoffice)" -env:UserInstallation="file://${tmp_dir}/libreoffice" \
+    style_odt_tables "${odt}"
+    # A plain conversion leaves a table of contents empty, so toc_update.py updates it first. A
+    # private user profile lets the conversion run while LibreOffice is open. Its messages, such as
+    # font configuration warnings, are only shown on failure.
+    if has_toc "${odt}"; then
+      if ! libreoffice_toc_update pdf "${odt}" "${pdf}"; then
+        cat "${tmp_dir}/libreoffice.log" >&2
+        die "${name}: LibreOffice could not convert the document to PDF"
+      fi
+    elif ! "$(pdf_program libreoffice)" -env:UserInstallation="file://${tmp_dir}/libreoffice" \
       --headless --convert-to pdf --outdir "${tmp_dir}/output" "${odt}" \
       >"${tmp_dir}/libreoffice.log" 2>&1 || [[ ! -f "${pdf}" ]]; then
       cat "${tmp_dir}/libreoffice.log" >&2
@@ -746,11 +1074,7 @@ render() {
       ${pandoc_extra[@]+"${pandoc_extra[@]}"} --output "${pdf}" \
       2> >(grep -v '^warning: accessing absolute path .*build may not be reproducible' >&2)
   fi
-  if [[ "${target}" == "-" ]]; then
-    cat "${pdf}"
-  else
-    mv "${pdf}" "${target}"
-  fi
+  deliver "${pdf}" "${target}"
 }
 
 # The folder for --temp output. It is created on first use, and kept after mdrender exits, so the

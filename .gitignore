@@ -4,5 +4,8 @@
 *.odt
 *.pdf
 
+# Python bytecode cache, e.g. from running the tests.
+__pycache__/
+
 # macOS
 .DS_Store
