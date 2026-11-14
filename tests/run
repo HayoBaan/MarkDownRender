@@ -14,6 +14,9 @@
 #   - the tests of the LibreOffice macro (tests/python), with python3 and without LibreOffice;
 #   - the mdrender tests (tests/*.bats), with Bats, against the files in this repository.
 #
+# The Bats tests run in parallel when the environment variable TEST_JOBS is more than 1, and GNU
+# parallel is installed. Without parallel, they run one at a time.
+#
 # Exit status: 0 when all tests passed, 1 when a test failed, and 77 when tests were skipped because
 # pandoc, python3, or bats is not installed. The tests that could run did run, and none of them
 # failed. 77 is the status that automake reads as "skipped".
@@ -68,7 +71,12 @@ fi
 if ! command -v bats >/dev/null; then
   missing+=("bats")
 elif [[ ${#missing[@]} -eq 0 ]]; then
-  bats "${tests_dir}" || failed="true"
+  bats_options=()
+  if [[ "${TEST_JOBS:-1}" =~ ^[0-9]+$ && "${TEST_JOBS:-1}" -gt 1 ]] && command -v parallel >/dev/null; then
+    bats_options+=(--jobs "${TEST_JOBS}")
+  fi
+  # The form ${a[@]+...} keeps bash 3.2 with set -u from failing on an empty array
+  bats ${bats_options[@]+"${bats_options[@]}"} "${tests_dir}" || failed="true"
 fi
 
 if [[ "${failed}" == "true" ]]; then
